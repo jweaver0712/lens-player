@@ -8,43 +8,85 @@
 <title>Lens Player</title>
 <style>
   /* Built for the Meta Ray-Ban Display: a 600x600 lens. Black shows as see-through, so the UI keeps a black background. */
-  :root { --fg:#f2f2f2; --dim:#9a9a9a; --accent:#ffb020; --ok:#4cd08a; --bad:#ff6b5b; }
+  :root { --fg:#f2f2f2; --dim:#9a9a9a; --accent:#ffb020; --ok:#4cd08a; --bad:#ff6b5b; --card:#111; --edge:#222; }
   * { box-sizing:border-box; }
   html, body { margin:0; width:100vw; height:100vh; overflow:hidden; background:#000; color:var(--fg);
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button { font:inherit; color:var(--fg); cursor:pointer; outline:none; }
   .screen { position:absolute; inset:0; display:none; flex-direction:column; }
   .screen.on { display:flex; }
-  h1 { font-size:34px; margin:26px 28px 6px; letter-spacing:.5px; }
-  .hint { font-size:20px; color:var(--dim); margin:0 28px 14px; }
-  #lists { flex:1; overflow:hidden; padding:0 22px; display:flex; flex-direction:column; gap:12px; }
-  .tile { font:inherit; text-align:left; color:var(--fg); background:#111; border:3px solid #222; border-radius:18px;
-    padding:16px 20px; font-size:28px; display:flex; align-items:center; gap:16px; outline:none; cursor:pointer; }
+  h1 { font-size:34px; margin:24px 28px 4px; letter-spacing:.5px; }
+  .hint { font-size:20px; color:var(--dim); margin:0 28px 12px; }
+  .scroller { flex:1; overflow-y:auto; overflow-x:hidden; padding:0 22px 22px; display:flex; flex-direction:column; gap:12px; scrollbar-width:none; }
+  .scroller::-webkit-scrollbar { display:none; }
+  .tile { text-align:left; background:var(--card); border:3px solid var(--edge); border-radius:18px;
+    padding:16px 20px; font-size:28px; display:flex; align-items:center; gap:16px; flex-shrink:0; }
   .tile .kind { font-size:18px; color:var(--dim); margin-left:auto; }
-  .tile:focus, .tile.focus { border-color:var(--accent); background:#1d1608; }
-  #player-wrap { width:100%; aspect-ratio:16/9; background:#000; position:relative; }
+  .tile.star { border-color:#3a2a08; }
+  button:focus, button.focus { border-color:var(--accent) !important; background:#1d1608 !important; }
+
+  /* feed */
+  .tabs { display:flex; gap:8px; padding:16px 18px 10px; flex-shrink:0; }
+  .tab { flex:1; font-size:19px; padding:10px 0; border-radius:14px; border:3px solid var(--edge); background:var(--card); color:var(--dim); }
+  .tab.sel { color:var(--fg); border-color:#555; }
+  .card { display:flex; gap:14px; align-items:center; text-align:left; background:var(--card); border:3px solid var(--edge); border-radius:16px; padding:10px; flex-shrink:0; }
+  .card img { width:168px; height:94px; object-fit:cover; border-radius:10px; background:#222; flex-shrink:0; }
+  .card .t { font-size:21px; line-height:1.25; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .card .c { font-size:16px; color:var(--dim); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .card > div { min-width:0; }
+  .msg { font-size:22px; color:var(--dim); line-height:1.45; padding:8px 6px; }
+  .searchrow { display:flex; gap:8px; flex-shrink:0; }
+  .searchrow input { flex:1; min-width:0; font:inherit; font-size:22px; padding:12px 14px; border-radius:14px; border:3px solid var(--edge); background:var(--card); color:var(--fg); outline:none; }
+  .searchrow input:focus { border-color:var(--accent); }
+  .smallbtn { font-size:20px; padding:12px 18px; border-radius:14px; border:3px solid var(--edge); background:var(--card); flex-shrink:0; }
+
+  /* sign-in */
+  #link { align-items:center; justify-content:center; text-align:center; padding:24px; gap:10px; }
+  #link .big { font-size:54px; font-weight:700; letter-spacing:6px; color:var(--accent); margin:6px 0; }
+  #link .url { font-size:30px; font-weight:600; }
+  #link p { font-size:21px; color:var(--dim); margin:0; line-height:1.4; }
+
+  /* player */
+  #player-wrap { width:100%; aspect-ratio:16/9; background:#000; position:relative; flex-shrink:0; }
   #player-wrap iframe, #yt { width:100%; height:100%; border:0; display:block; }
   #now { font-size:22px; color:var(--dim); margin:10px 22px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; height:30px; }
   #controls { display:flex; gap:10px; padding:14px 16px 0; justify-content:center; }
-  .btn { font:inherit; width:22%; max-width:128px; aspect-ratio:1; border-radius:20px; border:3px solid #222; background:#111; color:var(--fg);
-    font-size:40px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; outline:none; cursor:pointer; }
+  .btn { width:22%; max-width:128px; aspect-ratio:1; border-radius:20px; border:3px solid var(--edge); background:var(--card);
+    font-size:40px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; }
   .btn small { font-size:15px; color:var(--dim); }
-  .btn:focus, .btn.focus { border-color:var(--accent); background:#1d1608; }
-  #toast { position:absolute; left:20px; right:20px; bottom:20px; padding:14px 18px; border-radius:14px; background:#1a1a1a;
-    font-size:20px; display:none; }
+  #toast { position:absolute; left:20px; right:20px; bottom:20px; padding:14px 18px; border-radius:14px; background:#1a1a1a; font-size:20px; display:none; z-index:9; }
   #toast.on { display:block; }
-  #blackout { position:absolute; inset:0; background:#000; display:none; align-items:flex-end; justify-content:center; padding-bottom:24px;
-    color:#444; font-size:18px; z-index:5; }
+  #blackout { position:absolute; inset:0; background:#000; display:none; align-items:flex-end; justify-content:center; padding-bottom:24px; color:#444; font-size:18px; z-index:5; }
   #blackout.on { display:flex; }
-  .empty { font-size:24px; color:var(--dim); margin:10px 28px; line-height:1.4; }
 </style>
 </head>
 <body>
 
-<!-- HOME: pick a list -->
-<section id="home" class="screen on" aria-label="Your lists">
+<!-- HOME -->
+<section id="home" class="screen on" aria-label="Home">
   <h1>Lens Player</h1>
-  <p class="hint">Swipe to pick · pinch to play · Back to return</p>
-  <div id="lists"></div>
+  <p class="hint">Swipe to pick · pinch to open · Back to return</p>
+  <div id="lists" class="scroller"></div>
+</section>
+
+<!-- SIGN IN WITH A CODE -->
+<section id="link" class="screen" aria-label="Sign in">
+  <p>On your phone, go to</p>
+  <div class="url" id="link-url">google.com/device</div>
+  <p>and enter this code</p>
+  <div class="big" id="link-code">····</div>
+  <p id="link-note">Waiting for you to sign in…</p>
+</section>
+
+<!-- MY YOUTUBE FEED -->
+<section id="feed" class="screen" aria-label="My YouTube">
+  <div class="tabs">
+    <button class="tab" data-tab="subs">Subs</button>
+    <button class="tab" data-tab="liked">Liked</button>
+    <button class="tab" data-tab="lists">Lists</button>
+    <button class="tab" data-tab="search">Search</button>
+  </div>
+  <div id="feed-list" class="scroller"></div>
 </section>
 
 <!-- PLAYER -->
@@ -62,165 +104,313 @@
 
 <div id="toast" role="status"></div>
 
+<script src="config.js"></script>
 <script>
-/* ---------- Your lists ----------
-   Lists come from the link itself (?l=...), made by setup.html on your phone.
-   The last good set is also remembered on the glasses. */
-const DEFAULT_LISTS = [
-  { n: "Test video (sorry in advance)", t: "v", id: "dQw4w9WgXcQ" }
-];
-
+/* ================= Saved lists (from the setup page link) ================= */
+const DEFAULT_LISTS = [ { n: "Test video (sorry in advance)", t: "v", id: "dQw4w9WgXcQ" } ];
 function decodeLists(s) {
   try {
-    s = s.replace(/-/g, "+").replace(/_/g, "/");
-    while (s.length % 4) s += "=";
-    const json = decodeURIComponent(escape(atob(s)));
-    const arr = JSON.parse(json);
+    s = s.replace(/-/g, "+").replace(/_/g, "/"); while (s.length % 4) s += "=";
+    const arr = JSON.parse(decodeURIComponent(escape(atob(s))));
     return Array.isArray(arr) ? arr.filter(x => x && x.id && (x.t === "p" || x.t === "v")) : null;
   } catch (e) { return null; }
 }
-function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function store(k, v) { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} }
 function recall(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
-
+const QS = new URLSearchParams(location.search);
+const DEMO = QS.get("demo") === "1";
 let lists = null;
-const param = new URLSearchParams(location.search).get("l");
-if (param) { lists = decodeLists(param); if (lists && lists.length) store("lp.lists", param); }
-if (!lists || !lists.length) { const saved = recall("lp.lists"); if (saved) lists = decodeLists(saved); }
+if (QS.get("l")) { lists = decodeLists(QS.get("l")); if (lists && lists.length) store("lp.lists", QS.get("l")); }
+if (!lists || !lists.length) { const s = recall("lp.lists"); if (s) lists = decodeLists(s); }
 if (!lists || !lists.length) lists = DEFAULT_LISTS;
 
-/* ---------- Home screen ---------- */
-const listsEl = document.getElementById("lists");
-lists.slice(0, 5).forEach((l, i) => {
-  const b = document.createElement("button");
-  b.className = "tile";
-  b.innerHTML = `<span>${l.t === "p" ? "▤" : "▶"}</span><span></span><span class="kind">${l.t === "p" ? "playlist" : "video"}</span>`;
-  b.children[1].textContent = l.n || (l.t === "p" ? "Playlist" : "Video");
-  b.addEventListener("click", () => openList(i));
-  listsEl.appendChild(b);
-});
-if (lists.length > 5) {
-  const p = document.createElement("p"); p.className = "empty";
-  p.textContent = `+${lists.length - 5} more. Keep it to 5 so they fit the lens.`;
-  listsEl.appendChild(p);
-}
+const $ = id => document.getElementById(id);
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 
-/* ---------- Focus + Neural Band / D-pad navigation ---------- */
-function focusables() {
-  const on = document.querySelector(".screen.on");
-  return Array.from(on.querySelectorAll("button"));
+/* Home tiles */
+(function buildHome() {
+  const box = $("lists");
+  const my = el("button", "tile star");
+  my.append(el("span", null, "★"), el("span", null, "My YouTube"), el("span", "kind", isLinked() ? "signed in" : "sign in"));
+  my.addEventListener("click", openMyYouTube);
+  box.appendChild(my);
+  lists.slice(0, 8).forEach(l => {
+    const b = el("button", "tile");
+    b.append(el("span", null, l.t === "p" ? "▤" : "▶"), el("span", null, l.n || (l.t === "p" ? "Playlist" : "Video")), el("span", "kind", l.t === "p" ? "playlist" : "video"));
+    b.addEventListener("click", () => play({ t: l.t, id: l.id, title: l.n }));
+    box.appendChild(b);
+  });
+})();
+
+/* ================= Screens + Back ================= */
+let stack = ["home"];
+function screenIs(id) { return $(id).classList.contains("on"); }
+function render(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === id));
+  if (id !== "play" && player && player.stopVideo) { try { player.stopVideo(); } catch (e) {} }
+  if (id !== "link") stopPolling();
+  setDark(false, true);
+  setTimeout(() => focusFirst(id), 30);
+}
+function go(id) {           // forward to a new screen (system Back returns)
+  if (stack[stack.length - 1] === id) return render(id);
+  stack.push(id); history.pushState({ s: id }, "", location.href); render(id);
+}
+function replace(id) { stack[stack.length - 1] = id; render(id); }
+window.addEventListener("popstate", () => { if (stack.length > 1) stack.pop(); render(stack[stack.length - 1]); });
+
+/* Focus: the glasses do spatial navigation and pinch = click on their own.
+   Arrow handling below is for desktop testing and keeps the focused item in view. */
+function focusables() { return Array.from(document.querySelector(".screen.on").querySelectorAll("button, input")); }
+function focusFirst(id) {
+  const scr = $(id); let t = null;
+  if (id === "feed") t = scr.querySelector(".tab.sel");
+  t = t || scr.querySelector("button, input"); if (t) t.focus();
 }
 function moveFocus(d) {
   const f = focusables(); if (!f.length) return;
   let i = f.indexOf(document.activeElement);
   i = i < 0 ? 0 : Math.max(0, Math.min(f.length - 1, i + d));
-  f[i].focus();
+  f[i].focus(); f[i].scrollIntoView({ block: "nearest" });
 }
-/* The glasses already move focus with spatial navigation and turn a pinch (Enter) into a click.
-   This handler only adds arrow-key movement for desktop testing, and never fakes a click. */
+document.addEventListener("focusin", e => { if (e.target.scrollIntoView) e.target.scrollIntoView({ block: "nearest" }); });
 document.addEventListener("keydown", e => {
-  if (blackout.classList.contains("on")) { e.preventDefault(); setDark(false); return; }
+  if ($("blackout").classList.contains("on")) { e.preventDefault(); setDark(false); return; }
+  if (e.target.tagName === "INPUT" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return;
   if (e.key === "ArrowDown" || e.key === "ArrowRight") { e.preventDefault(); moveFocus(1); }
   else if (e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); moveFocus(-1); }
-  else if (e.key === "Escape" && screenIs("play")) { e.preventDefault(); history.back(); } /* desktop stand-in for the system Back */
+  else if (e.key === "Escape" && stack.length > 1) { e.preventDefault(); history.back(); }
 });
-window.addEventListener("load", () => moveFocus(0));
+window.addEventListener("load", () => focusFirst("home"));
 
-/* ---------- Screens ---------- */
-function screenIs(id) { return document.getElementById(id).classList.contains("on"); }
-function show(id) {
-  document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === id));
-  setTimeout(() => moveFocus(0), 30);
-}
-function goHome() {
-  if (player && player.stopVideo) player.stopVideo();
-  setDark(false);
-  show("home");
-}
-/* System Back (swipe/back on the glasses) calls history.back(), which lands here. */
-window.addEventListener("popstate", () => { if (screenIs("play")) goHome(); });
-
-/* ---------- Toast ---------- */
-const toastEl = document.getElementById("toast");
+/* Toast */
 let toastT;
-function toast(msg, ms = 2600) {
-  toastEl.textContent = msg; toastEl.classList.add("on");
-  clearTimeout(toastT); toastT = setTimeout(() => toastEl.classList.remove("on"), ms);
+function toast(msg, ms = 2800) { const t = $("toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), ms); }
+
+/* Audio mode: a black screen lights nothing in the lens, which saves display power */
+function setDark(on, quiet) { $("blackout").classList.toggle("on", on); if (!on && !quiet && screenIs("play")) $("b-dark").focus(); }
+$("blackout").addEventListener("click", () => setDark(false));
+
+/* ================= Google sign-in (device code) + YouTube Data API ================= */
+const CFG = window.LP_CONFIG || {};
+const SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
+function tok() { try { return JSON.parse(recall("lp.tok") || "null"); } catch (e) { return null; } }
+function saveTok(t) { store("lp.tok", t ? JSON.stringify(t) : null); }
+function isLinked() { return DEMO || !!(tok() && tok().refresh); }
+
+async function post(url, data) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(data) });
+  return { ok: r.ok, status: r.status, j: await r.json().catch(() => ({})) };
+}
+async function accessToken() {
+  const t = tok(); if (!t) return null;
+  if (t.access && t.exp > Date.now() + 60000) return t.access;
+  if (!t.refresh) return null;
+  const r = await post("https://oauth2.googleapis.com/token", { client_id: CFG.clientId, client_secret: CFG.clientSecret, refresh_token: t.refresh, grant_type: "refresh_token" });
+  if (!r.ok) { if (r.j.error === "invalid_grant") saveTok(null); return null; }
+  t.access = r.j.access_token; t.exp = Date.now() + (r.j.expires_in || 3600) * 1000; saveTok(t); return t.access;
+}
+async function yt(path, params) {
+  if (DEMO) return demoApi(path, params);
+  const a = await accessToken();
+  if (!a) throw new Error("signin");
+  const r = await fetch("https://www.googleapis.com/youtube/v3/" + path + "?" + new URLSearchParams(params), { headers: { Authorization: "Bearer " + a } });
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) { const t = tok(); if (t) { t.exp = 0; saveTok(t); } throw new Error("signin"); }
+  if (!r.ok) { const reason = j.error && j.error.errors && j.error.errors[0] && j.error.errors[0].reason; throw new Error(reason === "quotaExceeded" ? "quota" : "api"); }
+  return j;
 }
 
-/* ---------- Audio mode (black screen = lens shows nothing, saves display power) ---------- */
-const blackout = document.getElementById("blackout");
-function setDark(on) {
-  blackout.classList.toggle("on", on);
-  if (!on) document.getElementById("b-dark").focus();
-}
-blackout.addEventListener("click", () => setDark(false));
-
-/* ---------- YouTube official IFrame player ---------- */
-let player = null, apiReady = false, pending = null, current = null;
-window.onYouTubeIframeAPIReady = () => { apiReady = true; if (pending !== null) { const p = pending; pending = null; openList(p); } };
-(function loadApi() {
-  const s = document.createElement("script");
-  s.src = "https://www.youtube.com/iframe_api";
-  s.onerror = () => toast("Can't reach YouTube. Check your phone's signal.", 5000);
-  document.head.appendChild(s);
-})();
-
-function openList(i) {
-  current = lists[i];
-  if (!screenIs("play")) history.pushState({ v: "play" }, "", location.href);
-  show("play");
-  document.getElementById("now").textContent = current.n || "Loading…";
-  if (!apiReady) { pending = i; toast("Loading YouTube…"); return; }
-  const vars = { autoplay: 1, playsinline: 1, controls: 0, rel: 0, modestbranding: 1, iv_load_policy: 3, fs: 0 };
-  if (current.t === "p") { vars.listType = "playlist"; vars.list = current.id; }
-  if (player && player.destroy) { player.destroy(); document.getElementById("player-wrap").innerHTML = '<div id="yt"></div>'; }
-  player = new YT.Player("yt", {
-    width: 600, height: 338,
-    videoId: current.t === "v" ? current.id : undefined,
-    playerVars: vars,
-    events: {
-      onReady: e => { e.target.playVideo(); },
-      onStateChange: onState,
-      onError: onErr
+let pollT = null;
+function stopPolling() { clearTimeout(pollT); pollT = null; }
+async function startLink() {
+  if (!CFG.clientId) { go("feed"); feedMessage("My YouTube isn't set up yet. Finish the one-time Google setup, then try again."); return; }
+  go("link"); $("link-code").textContent = "····"; $("link-note").textContent = "Getting a code…";
+  const r = await post("https://oauth2.googleapis.com/device/code", { client_id: CFG.clientId, scope: SCOPE });
+  if (!r.ok) { $("link-note").textContent = "Google said no (" + (r.j.error || r.status) + "). Check the setup and try again."; return; }
+  const d = r.j;
+  $("link-url").textContent = (d.verification_url || "google.com/device").replace(/^https?:\/\/(www\.)?/, "");
+  $("link-code").textContent = d.user_code;
+  $("link-note").textContent = "Waiting for you to sign in…";
+  let wait = (d.interval || 5) * 1000; const until = Date.now() + (d.expires_in || 900) * 1000;
+  const poll = async () => {
+    if (!screenIs("link")) return;
+    if (Date.now() > until) { $("link-note").textContent = "Code expired. Press Back and try again."; return; }
+    const t = await post("https://oauth2.googleapis.com/token", { client_id: CFG.clientId, client_secret: CFG.clientSecret, device_code: d.device_code, grant_type: "urn:ietf:params:oauth:grant-type:device_code" });
+    if (t.ok) {
+      saveTok({ access: t.j.access_token, exp: Date.now() + (t.j.expires_in || 3600) * 1000, refresh: t.j.refresh_token });
+      toast("Signed in ✓"); replace("feed"); showTab("subs"); return;
     }
+    if (t.j.error === "slow_down") wait += 5000;
+    else if (t.j.error === "access_denied") { $("link-note").textContent = "Sign-in was cancelled. Press Back to try again."; return; }
+    else if (t.j.error && t.j.error !== "authorization_pending") { $("link-note").textContent = "Sign-in failed (" + t.j.error + ")."; return; }
+    pollT = setTimeout(poll, wait);
+  };
+  pollT = setTimeout(poll, wait);
+}
+
+function openMyYouTube() {
+  if (!isLinked()) return startLink();
+  go("feed"); showTab(currentTab || "subs");
+}
+
+/* ================= Feed ================= */
+let currentTab = null, feedItems = [];
+const cache = {};
+document.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+function feedMessage(text) { const box = $("feed-list"); box.innerHTML = ""; box.appendChild(el("div", "msg", text)); }
+function ago(iso) {
+  if (!iso) return ""; const s = (Date.now() - new Date(iso)) / 1000;
+  if (s < 3600) return Math.max(1, Math.round(s / 60)) + "m ago"; if (s < 86400) return Math.round(s / 3600) + "h ago";
+  if (s < 86400 * 30) return Math.round(s / 86400) + "d ago"; return new Date(iso).toLocaleDateString();
+}
+function renderCards(items, emptyText) {
+  feedItems = items;
+  const box = $("feed-list"); box.innerHTML = "";
+  if (!items.length) return feedMessage(emptyText || "Nothing here yet.");
+  items.forEach((it, i) => {
+    const b = el("button", "card");
+    const img = el("img"); img.alt = ""; img.loading = "lazy";
+    img.onerror = () => { img.style.visibility = "hidden"; };
+    img.src = it.thumb || (it.t === "v" ? "https://i.ytimg.com/vi/" + it.id + "/mqdefault.jpg" : "");
+    const txt = el("div"); txt.append(el("div", "t", it.title), el("div", "c", [it.channel, it.t === "p" ? (it.count ? it.count + " videos" : "playlist") : ago(it.published)].filter(Boolean).join(" · ")));
+    b.append(img, txt);
+    b.addEventListener("click", () => it.t === "p" ? play(it) : play(it, feedItems.filter(x => x.t === "v"), feedItems.filter(x => x.t === "v").indexOf(it)));
+    box.appendChild(b);
   });
 }
+async function showTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll(".tab").forEach(b => b.classList.toggle("sel", b.dataset.tab === tab));
+  if (tab === "search") return showSearch();
+  if (cache[tab] && Date.now() - cache[tab].at < 10 * 60000) return renderCards(cache[tab].items);
+  feedMessage("Loading…");
+  try {
+    const items = tab === "subs" ? await loadSubs() : tab === "liked" ? await loadLiked() : await loadPlaylists();
+    cache[tab] = { at: Date.now(), items };
+    if (currentTab === tab) renderCards(items, tab === "subs" ? "No subscriptions found on this account." : tab === "liked" ? "No liked videos yet." : "No playlists on this account.");
+  } catch (e) { handleErr(e); }
+}
+function handleErr(e) {
+  if (e.message === "signin") { feedMessage("You're signed out. Opening sign-in…"); setTimeout(startLink, 900); }
+  else if (e.message === "quota") feedMessage("Google's free daily limit is used up. It resets at midnight Pacific.");
+  else feedMessage("Couldn't reach YouTube. Check your phone's signal and try the tab again.");
+}
+const thumb = sn => (sn.thumbnails && (sn.thumbnails.medium || sn.thumbnails.high || sn.thumbnails.default) || {}).url;
+const usable = it => it.id && it.title && it.title !== "Private video" && it.title !== "Deleted video";
+
+async function loadSubs() {
+  const subs = await yt("subscriptions", { part: "snippet", mine: "true", maxResults: "50", order: "relevance" });
+  const ch = (subs.items || []).map(s => s.snippet.resourceId.channelId).filter(Boolean).slice(0, 25);
+  const per = await Promise.allSettled(ch.map(id => yt("playlistItems", { part: "snippet,contentDetails", playlistId: "UU" + id.slice(2), maxResults: "3" })));
+  const items = [];
+  per.forEach(p => { if (p.status === "fulfilled") (p.value.items || []).forEach(v => items.push({
+    t: "v", id: v.contentDetails.videoId, title: v.snippet.title, channel: v.snippet.videoOwnerChannelTitle || v.snippet.channelTitle,
+    published: v.contentDetails.videoPublishedAt || v.snippet.publishedAt, thumb: thumb(v.snippet) })); });
+  return items.filter(usable).sort((a, b) => new Date(b.published) - new Date(a.published)).slice(0, 40);
+}
+async function loadLiked() {
+  const j = await yt("videos", { part: "snippet", myRating: "like", maxResults: "30" });
+  return (j.items || []).map(v => ({ t: "v", id: v.id, title: v.snippet.title, channel: v.snippet.channelTitle, published: v.snippet.publishedAt, thumb: thumb(v.snippet) })).filter(usable);
+}
+async function loadPlaylists() {
+  const j = await yt("playlists", { part: "snippet,contentDetails", mine: "true", maxResults: "25" });
+  return (j.items || []).map(p => ({ t: "p", id: p.id, title: p.snippet.title, channel: "", count: p.contentDetails && p.contentDetails.itemCount, thumb: thumb(p.snippet) })).filter(usable);
+}
+function showSearch() {
+  const box = $("feed-list"); box.innerHTML = "";
+  const row = el("div", "searchrow");
+  const input = el("input"); input.type = "search"; input.id = "q"; input.placeholder = "Say or type a search"; input.enterKeyHint = "search";
+  const go = el("button", "smallbtn", "Search");
+  const run = async () => {
+    const q = input.value.trim(); if (!q) return toast("Say or type something first.");
+    const res = el("div", "msg", "Searching…"); while (row.nextSibling) row.nextSibling.remove(); box.appendChild(res);
+    try {
+      const j = await yt("search", { part: "snippet", type: "video", maxResults: "15", q, safeSearch: "moderate" });
+      const items = (j.items || []).map(v => ({ t: "v", id: v.id.videoId, title: v.snippet.title, channel: v.snippet.channelTitle, published: v.snippet.publishedAt, thumb: thumb(v.snippet) })).filter(usable);
+      renderCards(items, "No results."); box.prepend(row);
+      const first = box.querySelector(".card"); if (first) first.focus();
+    } catch (e) { handleErr(e); box.prepend(row); }
+  };
+  go.addEventListener("click", run);
+  input.addEventListener("change", run);
+  row.append(input, go); box.appendChild(row);
+  box.appendChild(el("div", "msg", "Each search uses a chunk of the free daily allowance (about 100 a day)."));
+}
+
+/* ================= Player (YouTube's official IFrame player) ================= */
+let player = null, apiReady = false, pending = null, current = null, queue = [], qi = -1;
+window.onYouTubeIframeAPIReady = () => { apiReady = true; if (pending) { const p = pending; pending = null; startPlayer(p); } };
+(function () { const s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api"; s.onerror = () => toast("Can't reach YouTube. Check your phone's signal.", 5000); document.head.appendChild(s); })();
+
+function play(item, q, i) {
+  current = item; queue = q || []; qi = typeof i === "number" ? i : -1;
+  go("play");
+  $("now").textContent = item.title || "Loading…";
+  if (!apiReady) { pending = item; toast("Loading YouTube…"); return; }
+  startPlayer(item);
+}
+function startPlayer(item) {
+  const vars = { autoplay: 1, playsinline: 1, controls: 0, rel: 0, iv_load_policy: 3, fs: 0 };
+  if (item.t === "p") { vars.listType = "playlist"; vars.list = item.id; }
+  if (player && player.destroy) { try { player.destroy(); } catch (e) {} $("player-wrap").innerHTML = '<div id="yt"></div>'; }
+  player = new YT.Player("yt", {
+    width: 600, height: 338, videoId: item.t === "v" ? item.id : undefined, playerVars: vars,
+    events: { onReady: e => e.target.playVideo(), onStateChange: onState, onError: onErr }
+  });
+}
+function nextInQueue(d) {
+  if (!queue.length || qi < 0) return false;
+  const n = qi + d; if (n < 0 || n >= queue.length) { toast(d > 0 ? "That was the last one." : "That's the first one."); return true; }
+  qi = n; current = queue[n]; $("now").textContent = current.title || "";
+  player.loadVideoById(current.id); return true;
+}
 function onState(e) {
-  const pp = document.getElementById("b-pp").querySelector("small");
+  const pp = $("b-pp").querySelector("small");
   if (e.data === YT.PlayerState.PLAYING) {
     pp.textContent = "Pause";
-    const d = player.getVideoData && player.getVideoData();
-    if (d && d.title) document.getElementById("now").textContent = d.title;
-  } else if (e.data === YT.PlayerState.PAUSED || e.data === YT.PlayerState.ENDED) {
-    pp.textContent = "Play";
-  }
+    const d = player.getVideoData && player.getVideoData(); if (d && d.title) $("now").textContent = d.title;
+  } else if (e.data === YT.PlayerState.PAUSED) pp.textContent = "Play";
+  else if (e.data === YT.PlayerState.ENDED) { pp.textContent = "Play"; if (current && current.t === "v") nextInQueue(1); }
 }
 function onErr(e) {
   const why = { 2: "That link looks broken.", 5: "This video can't play here.", 100: "Video was removed or is private.",
     101: "The creator blocks this video outside YouTube.", 150: "The creator blocks this video outside YouTube.",
     153: "YouTube needs this page on its https link to play." }[e.data] || "YouTube hit a snag.";
-  if (current && current.t === "p" && (e.data === 101 || e.data === 150 || e.data === 100 || e.data === 5)) {
-    toast(why + " Skipping…"); setTimeout(() => player.nextVideo(), 1800);
-  } else toast(why, 5000);
+  const skippable = [5, 100, 101, 150].includes(e.data);
+  if (skippable && current && current.t === "p") { toast(why + " Skipping…"); setTimeout(() => player.nextVideo(), 1800); }
+  else if (skippable && queue.length) { toast(why + " Skipping…"); setTimeout(() => nextInQueue(1), 1800); }
+  else toast(why, 5000);
 }
-
-document.getElementById("controls").addEventListener("click", e => {
+$("controls").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
   const a = b.dataset.act;
   if (a === "dark") return setDark(true);
   if (!player || !player.getPlayerState) return toast("Still loading…");
   const st = player.getPlayerState();
   if (st === -1 || st === 3) { toast("Ad or loading. Buttons work once the video starts."); if (a === "pp") player.playVideo(); return; }
-  if (a === "pp") {
-    st === YT.PlayerState.PLAYING ? player.pauseVideo() : player.playVideo();
-  } else if (a === "next") {
-    current.t === "p" ? player.nextVideo() : player.seekTo(Math.min(player.getCurrentTime() + 30, player.getDuration() - 1), true);
-    if (current.t !== "p") toast("+30 seconds");
+  if (a === "pp") st === YT.PlayerState.PLAYING ? player.pauseVideo() : player.playVideo();
+  else if (a === "next") {
+    if (current.t === "p") player.nextVideo();
+    else if (!nextInQueue(1)) { player.seekTo(Math.min(player.getCurrentTime() + 30, player.getDuration() - 1), true); toast("+30 seconds"); }
   } else if (a === "prev") {
-    current.t === "p" ? player.previousVideo() : player.seekTo(Math.max(player.getCurrentTime() - 15, 0), true);
-    if (current.t !== "p") toast("−15 seconds");
+    if (current.t === "p") player.previousVideo();
+    else if (!nextInQueue(-1)) { player.seekTo(Math.max(player.getCurrentTime() - 15, 0), true); toast("−15 seconds"); }
   }
 });
+
+/* ================= Demo data (?demo=1) so the layout can be checked without signing in ================= */
+function demoApi(path) {
+  const v = (t, c, h) => ({ id: "dQw4w9WgXcQ", snippet: { title: t, channelTitle: c, publishedAt: new Date(Date.now() - h * 3600e3).toISOString(), thumbnails: {} } });
+  if (path === "subscriptions") return { items: [{ snippet: { resourceId: { channelId: "UCdemo1" } } }] };
+  if (path === "playlistItems") return { items: [
+    ["Why your AC capacitor keeps failing", "HVAC School", 3], ["200A panel upgrade start to finish", "Electrician U", 9],
+    ["Tankless water heater descale in 10 minutes", "Plumbing Pro", 20], ["Dryer not heating? Check these 3 parts", "Appliance Fix", 30]
+  ].map(([t, c, h]) => ({ snippet: { title: t, videoOwnerChannelTitle: c, thumbnails: {} }, contentDetails: { videoId: "dQw4w9WgXcQ", videoPublishedAt: new Date(Date.now() - h * 3600e3).toISOString() } })) };
+  if (path === "videos") return { items: [v("Liked demo video", "Some channel", 50)] };
+  if (path === "playlists") return { items: [{ id: "PLdemo", snippet: { title: "Watch on the job", thumbnails: {} }, contentDetails: { itemCount: 12 } }] };
+  return { items: [{ id: { videoId: "dQw4w9WgXcQ" }, snippet: { title: "Search result demo", channelTitle: "Demo", publishedAt: new Date().toISOString(), thumbnails: {} } }] };
+}
 </script>
 </body>
 </html>
