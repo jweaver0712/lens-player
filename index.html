@@ -270,7 +270,7 @@ function renderCards(items, emptyText) {
   if (!items.length) return feedMessage(emptyText || "Nothing here yet.");
   items.forEach((it, i) => {
     const b = el("button", "card");
-    const img = el("img"); img.alt = ""; img.loading = "lazy";
+    const img = el("img"); img.alt = "";
     img.onerror = () => { img.style.visibility = "hidden"; };
     img.src = it.thumb || (it.t === "v" ? "https://i.ytimg.com/vi/" + it.id + "/mqdefault.jpg" : "");
     const txt = el("div"); txt.append(el("div", "t", it.title), el("div", "c", [it.channel, it.t === "p" ? (it.count ? it.count + " videos" : "playlist") : ago(it.published)].filter(Boolean).join(" · ")));
