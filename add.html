@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add to My Glasses</title>
+<style>
+  :root { --bg:#f4f5f3; --card:#fff; --fg:#16181a; --dim:#62696a; --line:#dde1df; --accent:#e08a00; --yt:#e62117; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111413; --card:#1a1e1d; --fg:#eef1ef; --dim:#9aa3a0; --line:#2a302e; --accent:#ffb020; --yt:#ff4e45; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:17px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:520px; margin:0 auto; padding:28px 16px 48px; }
+  h1 { font-size:28px; margin:0 0 6px; }
+  .sub { color:var(--dim); margin:0 0 22px; }
+  a.add { display:flex; align-items:center; gap:16px; text-decoration:none; color:var(--fg); background:var(--card); border:2px solid var(--line); border-radius:18px; padding:18px; margin-bottom:14px; }
+  a.add:active { transform:scale(.99); }
+  .ico { width:56px; height:56px; border-radius:14px; display:flex; align-items:center; justify-content:center; font-size:28px; color:#fff; flex-shrink:0; }
+  .t { font-weight:700; font-size:20px; }
+  .d { color:var(--dim); font-size:15px; }
+  .go { margin-left:auto; background:var(--accent); color:#000; font-weight:700; border-radius:12px; padding:10px 14px; white-space:nowrap; }
+  .note { color:var(--dim); font-size:14px; margin-top:18px; }
+  code { word-break:break-all; font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Add to my glasses</h1>
+  <p class="sub">Tap a button on the phone that runs your Meta AI app. It opens the app and adds it to your Display glasses.</p>
+
+  <a class="add" id="a-yt" href="#">
+    <span class="ico" style="background:var(--yt)">▶</span>
+    <span><span class="t">YouTube</span><br><span class="d">The full YouTube site in your lens</span></span>
+    <span class="go">Add</span>
+  </a>
+
+  <a class="add" id="a-my" href="#">
+    <span class="ico" style="background:#1d1608;color:#ffb020">★</span>
+    <span><span class="t">My YouTube</span><br><span class="d">Your subscriptions + search, built for the Neural Band</span></span>
+    <span class="go">Add</span>
+  </a>
+
+  <p class="note">Nothing happens when you tap? In the Meta AI app go to App Settings → Apps → Web Apps → Connect Web App and paste the address shown under the button you wanted.</p>
+  <p class="note" id="urls"></p>
+</main>
+<script>
+const base = new URL("./", location.href).href;
+const apps = {
+  "a-yt": { name: "YouTube", url: "https://m.youtube.com/" },
+  "a-my": { name: "My YouTube", url: base + "?start=my" }
+};
+const lines = [];
+for (const [id, a] of Object.entries(apps)) {
+  document.getElementById(id).href = "fb-viewapp://web_app_deep_link?appName=" + encodeURIComponent(a.name) + "&appUrl=" + encodeURIComponent(a.url);
+  lines.push(a.name + ": <code>" + a.url + "</code>");
+}
+document.getElementById("urls").innerHTML = lines.join("<br>");
+</script>
+</body>
+</html>

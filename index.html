@@ -153,6 +153,7 @@ function render(id) {
   setTimeout(() => focusFirst(id), 30);
 }
 function go(id) {           // forward to a new screen (system Back returns)
+  if (!stack.length) { stack = [id]; return render(id); }   /* first screen when opened straight into My YouTube */
   if (stack[stack.length - 1] === id) return render(id);
   stack.push(id); history.pushState({ s: id }, "", location.href); render(id);
 }
@@ -181,7 +182,11 @@ document.addEventListener("keydown", e => {
   else if (e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); moveFocus(-1); }
   else if (e.key === "Escape" && stack.length > 1) { e.preventDefault(); history.back(); }
 });
-window.addEventListener("load", () => focusFirst("home"));
+/* ?start=my opens straight into My YouTube (subscriptions + search), skipping the home tiles */
+const START_MY = QS.get("start") === "my";
+window.addEventListener("load", () => {
+  if (START_MY) { stack = []; openMyYouTube(); } else focusFirst("home");
+});
 
 /* Toast */
 let toastT;
