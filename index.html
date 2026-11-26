@@ -209,8 +209,10 @@ document.getElementById("controls").addEventListener("click", e => {
   const a = b.dataset.act;
   if (a === "dark") return setDark(true);
   if (!player || !player.getPlayerState) return toast("Still loading…");
+  const st = player.getPlayerState();
+  if (st === -1 || st === 3) { toast("Ad or loading. Buttons work once the video starts."); if (a === "pp") player.playVideo(); return; }
   if (a === "pp") {
-    player.getPlayerState() === YT.PlayerState.PLAYING ? player.pauseVideo() : player.playVideo();
+    st === YT.PlayerState.PLAYING ? player.pauseVideo() : player.playVideo();
   } else if (a === "next") {
     current.t === "p" ? player.nextVideo() : player.seekTo(Math.min(player.getCurrentTime() + 30, player.getDuration() - 1), true);
     if (current.t !== "p") toast("+30 seconds");
