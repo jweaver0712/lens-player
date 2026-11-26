@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lens Player Setup</title>
+<style>
+  :root { --bg:#f6f4ef; --card:#fff; --fg:#1b1b1b; --dim:#6b6b6b; --line:#e3dfd6; --accent:#e08a00; --ok:#1f9d5c; --bad:#c43c2c; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#121212; --card:#1c1c1c; --fg:#f0f0f0; --dim:#a0a0a0; --line:#2c2c2c; --accent:#ffb020; --ok:#4cd08a; --bad:#ff6b5b; } }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:17px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:24px 16px 60px; }
+  h1 { font-size:28px; margin:0 0 4px; }
+  .sub { color:var(--dim); margin:0 0 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:18px; margin-bottom:16px; }
+  .step { display:inline-block; background:var(--accent); color:#000; font-weight:700; border-radius:999px; width:28px; height:28px; text-align:center; line-height:28px; margin-right:8px; }
+  h2 { font-size:19px; margin:0 0 10px; display:flex; align-items:center; }
+  .row { display:flex; gap:8px; margin-bottom:8px; }
+  .row input { flex:1; min-width:0; }
+  .row input.name { flex:.8; }
+  input, textarea { font:inherit; padding:11px 12px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--fg); width:100%; }
+  button { font:inherit; font-weight:600; border:0; border-radius:12px; padding:12px 16px; background:var(--accent); color:#000; cursor:pointer; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--fg); font-weight:500; }
+  .x { padding:0 12px; background:transparent; border:1px solid var(--line); color:var(--dim); }
+  .ok { color:var(--ok); font-size:14px; } .bad { color:var(--bad); font-size:14px; }
+  .status { min-height:20px; font-size:14px; margin:-2px 0 8px; }
+  #out { word-break:break-all; font-size:14px; background:var(--bg); border-radius:10px; padding:12px; border:1px dashed var(--line); }
+  .btns { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  #qr { margin-top:14px; display:flex; justify-content:center; }
+  #qr img, #qr canvas { background:#fff; padding:10px; border-radius:12px; }
+  small.tip { color:var(--dim); display:block; margin-top:8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Lens Player setup</h1>
+  <p class="sub">Do this on your phone. Paste YouTube links, get one link, paste it into the Meta AI app. Done.</p>
+
+  <section class="card">
+    <h2><span class="step">1</span>Add up to 5 playlists or videos</h2>
+    <div id="rows"></div>
+    <button class="ghost" id="add">+ Add another</button>
+    <small class="tip">In the YouTube app: open a playlist or video → Share → Copy link → paste here. Playlists work best (Next/Back skip videos).</small>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">2</span>Get your glasses link</h2>
+    <button id="make">Make my link</button>
+    <div id="result" hidden>
+      <p id="out"></p>
+      <div class="btns">
+        <button id="copy">Copy link</button>
+        <button class="ghost" id="install">Send to glasses</button>
+      </div>
+      <small class="tip">"Send to glasses" tries to open the Meta AI app's add-app screen. If nothing happens, use Copy link and step 3.</small>
+      <div id="qr"></div>
+      <small class="tip" id="qrtip" hidden>On a computer? Scan this QR with your phone's camera to add it.</small>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">3</span>Paste it in the Meta AI app</h2>
+    <p style="margin:0">Meta AI app → <b>App Settings</b> → <b>Apps</b> → <b>Web Apps</b> → <b>Connect Web App</b> → paste → <b>Save</b>. "Lens Player" appears at the bottom of the app grid in your lens.</p>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+const rowsEl = document.getElementById("rows");
+const MAX = 5;
+
+function parseYouTube(url) {
+  url = (url || "").trim();
+  if (!url) return null;
+  if (/^(PL|UU|OL|FL|LL|RD)[\w-]{10,}$/.test(url)) return { t: "p", id: url };
+  if (/^[\w-]{11}$/.test(url)) return { t: "v", id: url };
+  let u; try { u = new URL(url.startsWith("http") ? url : "https://" + url); } catch (e) { return null; }
+  if (!/(^|\.)youtube\.com$|(^|\.)youtu\.be$|(^|\.)youtube-nocookie\.com$/.test(u.hostname)) return null;
+  const list = u.searchParams.get("list");
+  if (list && !/^RD/.test(list) && (u.pathname === "/playlist" || !u.searchParams.get("v"))) return { t: "p", id: list };
+  if (list && !/^RD/.test(list)) return { t: "p", id: list };
+  const v = u.searchParams.get("v");
+  if (v) return { t: "v", id: v };
+  if (u.hostname.endsWith("youtu.be")) { const id = u.pathname.slice(1).split("/")[0]; if (id) return { t: "v", id }; }
+  const m = u.pathname.match(/^\/(shorts|live|embed)\/([\w-]{11})/);
+  if (m) return { t: "v", id: m[2] };
+  return null;
+}
+
+function addRow(name = "", link = "") {
+  if (rowsEl.children.length >= MAX) return;
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `<div class="row"><input class="name" placeholder="Name (e.g. AC repair)" maxlength="28"><input class="link" placeholder="YouTube link" inputmode="url"><button class="x" title="Remove">✕</button></div><div class="status"></div>`;
+  const [n, l] = wrap.querySelectorAll("input");
+  n.value = name; l.value = link;
+  const st = wrap.querySelector(".status");
+  const check = () => {
+    const r = parseYouTube(l.value);
+    st.className = "status " + (l.value.trim() ? (r ? "ok" : "bad") : "");
+    st.textContent = l.value.trim() ? (r ? (r.t === "p" ? "✓ Playlist found" : "✓ Video found") : "That doesn't look like a YouTube link") : "";
+  };
+  l.addEventListener("input", check); check();
+  wrap.querySelector(".x").addEventListener("click", () => { wrap.remove(); if (!rowsEl.children.length) addRow(); });
+  rowsEl.appendChild(wrap);
+}
+document.getElementById("add").addEventListener("click", () => addRow());
+addRow(); addRow();
+
+function encodeLists(arr) {
+  return btoa(unescape(encodeURIComponent(JSON.stringify(arr)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+const playerBase = new URL("./", location.href).href;  // index.html lives next to this page
+
+let link = "";
+document.getElementById("make").addEventListener("click", () => {
+  const items = [];
+  rowsEl.querySelectorAll(":scope > div").forEach((w, i) => {
+    const [n, l] = w.querySelectorAll("input");
+    const r = parseYouTube(l.value);
+    if (r) items.push({ n: n.value.trim() || (r.t === "p" ? "Playlist " : "Video ") + (items.length + 1), t: r.t, id: r.id });
+  });
+  if (!items.length) { alertBox("Paste at least one YouTube link first."); return; }
+  link = playerBase + "?l=" + encodeLists(items);
+  document.getElementById("out").textContent = link;
+  document.getElementById("result").hidden = false;
+  const deep = "fb-viewapp://web_app_deep_link?appName=" + encodeURIComponent("Lens Player") + "&appUrl=" + encodeURIComponent(link);
+  document.getElementById("install").onclick = () => { location.href = deep; };
+  const qr = document.getElementById("qr"); qr.innerHTML = "";
+  if (window.QRCode) { new QRCode(qr, { text: deep, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.L }); document.getElementById("qrtip").hidden = false; }
+  if (!location.protocol.startsWith("https")) alertBox("Heads up: this page isn't on its https address yet, so the link won't work on the glasses until it's hosted.");
+});
+document.getElementById("copy").addEventListener("click", async e => {
+  try { await navigator.clipboard.writeText(link); e.target.textContent = "Copied ✓"; }
+  catch (_) { const r = document.createRange(); r.selectNodeContents(document.getElementById("out")); getSelection().removeAllRanges(); getSelection().addRange(r); e.target.textContent = "Selected, press Copy"; }
+  setTimeout(() => e.target.textContent = "Copy link", 2500);
+});
+function alertBox(msg) {
+  let b = document.getElementById("msg");
+  if (!b) { b = document.createElement("p"); b.id = "msg"; b.className = "bad"; document.getElementById("make").after(b); }
+  b.textContent = msg;
+}
+</script>
+</body>
+</html>
