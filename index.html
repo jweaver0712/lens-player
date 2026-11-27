@@ -52,15 +52,25 @@
   #link p { font-size:21px; color:var(--dim); margin:0; line-height:1.4; }
 
   /* player */
-  #player-wrap { width:100%; aspect-ratio:16/9; background:#000; position:relative; flex-shrink:0; }
-  #player-wrap iframe, #yt { width:100%; height:100%; border:0; display:block; }
+  /* Full-screen player. The iframe is laid out bigger than the lens and scaled down, which makes YouTube
+     pick a sharper stream than a 600px box would get. Fit shows the whole picture; Fill crops the sides
+     so the picture covers the whole lens. */
+  #play { background:#000; }
+  #player-wrap { position:absolute; inset:0; overflow:hidden; background:#000; }
+  #player-wrap iframe, #yt { position:absolute; left:50%; top:50%; border:0; display:block;
+    width:160vw; height:90vw; transform:translate(-50%,-50%) scale(.625); transform-origin:center; }
+  #play.fill #player-wrap iframe, #play.fill #yt { width:177.78vh; height:100vh; transform:translate(-50%,-50%); }
+  #hud-top, #hud { position:absolute; left:0; right:0; z-index:3; transition:opacity .25s; }
+  #hud-top { top:0; padding:14px 20px 34px; background:linear-gradient(rgba(0,0,0,.85), transparent); }
+  #hud { bottom:0; padding:34px 12px 14px; background:linear-gradient(transparent, rgba(0,0,0,.9)); }
+  #play.clean #hud-top, #play.clean #hud { opacity:0; visibility:hidden; }
   #cover { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:#000; }
   #cover.on { display:flex; }
   #cover img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.45; }
   #cover span { position:relative; font-size:26px; font-weight:600; padding:10px 20px; border-radius:14px; background:rgba(0,0,0,.6); }
-  #now { font-size:22px; color:var(--dim); margin:10px 22px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; height:30px; }
-  #controls { display:flex; gap:10px; padding:14px 16px 0; justify-content:center; }
-  .btn { width:22%; max-width:128px; aspect-ratio:1; border-radius:20px; border:3px solid var(--edge); background:var(--card);
+  #now { font-size:22px; color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #controls { display:flex; gap:8px; justify-content:center; }
+  .btn { width:18.5%; max-width:112px; aspect-ratio:1; border-radius:20px; border:3px solid var(--edge); background:var(--card);
     font-size:40px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; }
   .btn small { font-size:15px; color:var(--dim); }
   #toast { position:absolute; left:20px; right:20px; bottom:20px; padding:14px 18px; border-radius:14px; background:#1a1a1a; font-size:20px; display:none; z-index:9; }
@@ -101,13 +111,14 @@
 <!-- PLAYER -->
 <section id="play" class="screen" aria-label="Player">
   <div id="player-wrap"><div id="yt"></div><div id="cover"><img id="cover-img" alt="" onerror="this.style.visibility='hidden'"><span>Loading…</span></div></div>
-  <div id="now">Loading…</div>
-  <div id="controls">
+  <div id="hud-top"><div id="now">Loading…</div></div>
+  <div id="hud"><div id="controls">
     <button class="btn" id="b-prev" data-act="prev">⏮<small>Prev</small></button>
     <button class="btn" id="b-pp"   data-act="pp">⏯<small>Pause</small></button>
     <button class="btn" id="b-next" data-act="next">⏭<small>Next</small></button>
+    <button class="btn" id="b-zoom" data-act="zoom">⤢<small>Fill</small></button>
     <button class="btn" id="b-dark" data-act="dark">◐<small>Audio</small></button>
-  </div>
+  </div></div>
   <div id="blackout">Audio mode · pinch to show screen</div>
 </section>
 
@@ -184,6 +195,30 @@ function moveFocus(d) {
   f[i].focus(); f[i].scrollIntoView({ block: "nearest" });
 }
 document.addEventListener("focusin", e => { if (e.target.scrollIntoView) e.target.scrollIntoView({ block: "nearest" }); });
+/* Full screen: controls fade out after a few seconds of playback. The first swipe or pinch
+   only brings them back, so you never press a button you can't see. */
+let hudT = null;
+function hudVisible() { return !$("play").classList.contains("clean"); }
+function showHud() {
+  const was = hudVisible();
+  $("play").classList.remove("clean");
+  if (!was) $("b-pp").focus();
+  armHud();
+}
+function armHud() {
+  clearTimeout(hudT);
+  hudT = setTimeout(() => {
+    let playing = false; try { const st = player.getPlayerState(); playing = st === 1 || (st === -1 && player.getCurrentTime() > 0.2); } catch (e) {}
+    if (screenIs("play") && playing && !$("blackout").classList.contains("on")) { if (document.activeElement) document.activeElement.blur(); $("play").classList.add("clean"); }
+    else if (screenIs("play")) armHud();
+  }, 3500);
+}
+document.addEventListener("keydown", e => {
+  if (!screenIs("play") || $("blackout").classList.contains("on")) return;
+  if (!hudVisible() && e.key !== "Escape" && e.key !== "Backspace") { e.preventDefault(); e.stopImmediatePropagation(); showHud(); }
+  else armHud();
+}, true);
+$("play").addEventListener("pointerdown", () => { if (!hudVisible()) showHud(); else armHud(); });
 document.addEventListener("keydown", e => {
   if ($("blackout").classList.contains("on")) { e.preventDefault(); setDark(false); return; }
   if (e.target.tagName === "INPUT" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return;
@@ -381,6 +416,12 @@ window.onYouTubeIframeAPIReady = () => {
 };
 (function () { const s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api"; s.onerror = () => toast("Can't reach YouTube. Check your phone's signal.", 5000); document.head.appendChild(s); })();
 
+function setFill(on) {
+  $("play").classList.toggle("fill", on);
+  $("b-zoom").querySelector("small").textContent = on ? "Fit" : "Fill";
+  store("lp.fill", on ? "1" : "0");
+}
+setFill(recall("lp.fill") === "1");
 function showCover(item) {
   const c = $("cover"), img = $("cover-img");
   img.style.visibility = "visible";
@@ -400,6 +441,7 @@ let coverT = null;
 function play(item, q, i) {
   current = item; queue = q || []; qi = typeof i === "number" ? i : -1;
   go("play");
+  $("play").classList.remove("clean");
   $("now").textContent = item.title || "Loading…";
   showCover(item);
   if (!playerReady) { pending = item; return; }
@@ -418,9 +460,9 @@ function nextInQueue(d) {
 function onState(e) {
   const pp = $("b-pp").querySelector("small");
   if (e.data === YT.PlayerState.PLAYING) {
-    pp.textContent = "Pause"; $("cover").classList.remove("on");
+    pp.textContent = "Pause"; $("cover").classList.remove("on"); armHud();
     const d = player.getVideoData && player.getVideoData(); if (d && d.title) $("now").textContent = d.title;
-  } else if (e.data === YT.PlayerState.PAUSED) pp.textContent = "Play";
+  } else if (e.data === YT.PlayerState.PAUSED) { pp.textContent = "Play"; showHud(); }
   else if (e.data === YT.PlayerState.ENDED) { pp.textContent = "Play"; if (current && current.t === "v") nextInQueue(1); }
 }
 function onErr(e) {
@@ -436,6 +478,7 @@ $("controls").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
   const a = b.dataset.act;
   if (a === "dark") return setDark(true);
+  if (a === "zoom") return setFill(!$("play").classList.contains("fill"));
   if (!player || !player.getPlayerState) return toast("Still loading…");
   const st = player.getPlayerState();
   if (st === -1 || st === 3) { toast("Ad or loading. Buttons work once the video starts."); if (a === "pp") player.playVideo(); return; }
