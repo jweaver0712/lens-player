@@ -42,7 +42,7 @@
   <a class="add" id="a-ride" href="#">
     <span class="ico" style="background:#0a84ff">🧭</span>
     <span><span class="t">Ride Along</span><br><span class="d">Turn-by-turn directions for passengers</span></span>
-    <span class="go">Add</span>
+    <span class="go">Set up</span>
   </a>
 
   <p class="note">Nothing happens when you tap? In the Meta AI app go to App Settings → Apps → Web Apps → Connect Web App and paste the address shown under the button you wanted.</p>
@@ -61,6 +61,8 @@ for (const [id, a] of Object.entries(apps)) {
   lines.push(a.name + ": <code>" + a.url + "</code>");
 }
 document.getElementById("urls").innerHTML = lines.join("<br>");
+/* Ride Along needs its setup page (it pairs your phone for live location) */
+document.getElementById("a-ride").href = base + "ride-setup.html";
 </script>
 </body>
 </html>

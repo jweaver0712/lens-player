@@ -11,6 +11,7 @@
 <link rel="preconnect" href="https://tile.openstreetmap.org">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="relay.js"></script>
 <style>
   /* Ride Along: passenger turn-by-turn for the Meta Ray-Ban Display (600x600 lens).
      Black shows as see-through in the lens, so everything sits on black and uses bright, high-contrast parts.
@@ -83,6 +84,18 @@
   #ctrls button:disabled { opacity:.35; }
   #mode { position:absolute; right:16px; top:144px; z-index:500; font-size:15px; font-weight:700; padding:5px 10px; border-radius:10px; background:rgba(0,0,0,.7); color:var(--dim); }
   #mode.gps { color:var(--green); }
+  #mode.lost { color:var(--amber); }
+  #lochelp { position:absolute; inset:0; z-index:800; background:#000; display:none; flex-direction:column; padding:22px 24px; overflow-y:auto; }
+  #lochelp.on { display:flex; }
+  #lochelp h2 { font-size:30px; margin:0 0 6px; }
+  #lochelp .why { font-size:20px; color:var(--amber); margin:0 0 12px; }
+  #lochelp ol { margin:0 0 14px; padding-left:26px; font-size:20px; line-height:1.35; color:var(--dim); }
+  #lochelp ol b { color:#fff; }
+  #lochelp li { margin-bottom:8px; }
+  #lochelp .row { display:flex; gap:10px; margin-top:auto; }
+  #lochelp .row button { flex:1; border:0; border-radius:18px; padding:16px 0; font-size:22px; font-weight:800; background:var(--card2); }
+  #lochelp .row .blue { background:var(--blue); }
+  #locline { font-size:16px; color:var(--dim); margin-top:12px; }
 
   /* overview card */
   #ovcard { position:absolute; left:12px; right:12px; bottom:12px; z-index:500; background:rgba(28,28,30,.97); border-radius:24px; padding:18px 18px 14px; }
@@ -173,6 +186,13 @@
   <div class="scroller" id="steplist"></div>
 </section>
 
+<div id="lochelp">
+  <h2>Can't find your location</h2>
+  <div class="why" id="lh-why"></div>
+  <ol id="lh-steps"></ol>
+  <div class="row"><button id="lh-manual">Type a start</button><button id="lh-retry" class="blue">Try again</button></div>
+  <div id="locline"></div>
+</div>
 <div id="loading">Finding a route…</div>
 <div id="toast"></div>
 
@@ -209,36 +229,85 @@ document.addEventListener("keydown", e => {
 document.addEventListener("focusin", e => { if (e.target.scrollIntoView) e.target.scrollIntoView({ block: "nearest" }); });
 
 /* ---------- passenger check ---------- */
-$("b-pass").onclick = () => { go("search"); if (pendingDest) { const d = pendingDest; pendingDest = null; pickPlace(d); } else showRecents(); };
+$("b-pass").onclick = () => { startWatch(); go("search"); if (pendingDest) { const d = pendingDest; pendingDest = null; pickPlace(d); } else showRecents(); };
 $("b-drive").onclick = () => go("driver");
 $("b-who2").onclick = () => history.back();
 
-/* ---------- location ---------- */
-let here = null, hereAt = 0, watchId = null, gpsOk = false;
+/* ---------- location ----------
+   Two sources, newest and most accurate wins:
+   1. The glasses' own location (Meta: it comes from your paired phone through the Meta AI app).
+   2. The Ride Along phone page ("Share my location"), relayed over an encrypted private channel. */
+let here = null, hereAt = 0, watchId = null, gpsOk = false, geoErr = -1, src = "";
+let lastNative = null, lastPhone = null, phoneUp = false, waitingStart = false, waitingFix = false;
 const hasGeo = "geolocation" in navigator;
+const fresh = (f, ms = 8000) => f && Date.now() - f.at < ms;
+function accept(f) {
+  if (f.src === "native") { lastNative = f; if (fresh(lastPhone) && lastPhone.acc < f.acc + 15) return; }
+  else { lastPhone = f; if (fresh(lastNative) && lastNative.acc + 15 < f.acc) return; }
+  here = f; hereAt = f.at; gpsOk = true; src = f.src;
+  if (waitingStart) { waitingStart = false; $("lochelp").classList.remove("on"); from = { lat: f.lat, lon: f.lon }; buildRoute(); }
+  onFix(); updateMode(); locStatus();
+}
+function nativeFix(p) { return { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy || 50, heading: p.coords.heading, speed: p.coords.speed, at: Date.now(), src: "native" }; }
 function startWatch() {
   if (!hasGeo || watchId != null) return;
   try {
-    watchId = navigator.geolocation.watchPosition(p => {
-      here = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, speed: p.coords.speed };
-      hereAt = Date.now(); gpsOk = true; onFix();
-    }, err => { gpsOk = false; updateMode(); }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
+    watchId = navigator.geolocation.watchPosition(p => { geoErr = 0; accept(nativeFix(p)); }, err => {
+      geoErr = err.code;
+      if (err.code === 1) { try { navigator.geolocation.clearWatch(watchId); } catch (e) {} watchId = null; }
+      locStatus();
+    }, { enableHighAccuracy: true });
   } catch (e) {}
 }
-function getHere(ms = 8000) {
+function getHere(ms = 15000) {
   return new Promise(res => {
-    if (here && Date.now() - hereAt < 30000) return res(here);
-    if (!hasGeo) return res(null);
-    let done = false; const t = setTimeout(() => { if (!done) { done = true; res(here); } }, ms);
-    try {
-      navigator.geolocation.getCurrentPosition(p => {
-        if (done) return; done = true; clearTimeout(t);
-        here = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy }; hereAt = Date.now(); gpsOk = true; res(here);
-      }, () => { if (!done) { done = true; clearTimeout(t); res(null); } }, { enableHighAccuracy: true, timeout: ms, maximumAge: 10000 });
-    } catch (e) { done = true; clearTimeout(t); res(null); }
+    if (here && Date.now() - hereAt < 15000) return res(here);
+    startWatch();
+    if (hasGeo) try {
+      navigator.geolocation.getCurrentPosition(p => { geoErr = 0; accept(nativeFix(p)); }, err => { geoErr = err.code; locStatus(); }, { timeout: Math.min(ms, 15000) });
+    } catch (e) {}
+    const t0 = Date.now(), iv = setInterval(() => {
+      if (here && Date.now() - hereAt < 15000) { clearInterval(iv); res(here); }
+      else if (Date.now() - t0 > ms || (geoErr === 1 && !phoneUp && Date.now() - t0 > 2500)) { clearInterval(iv); res(null); }
+    }, 250);
   });
 }
-startWatch();
+/* Phone relay: the pairing key arrives in the Add link (?k=) and is remembered */
+let pair = QS.get("k") || recall("ra.pair");
+if (QS.get("k")) store("ra.pair", QS.get("k"));
+const paired = !!(window.RideRelay && pair && RideRelay.parsePair(pair));
+if (paired) {
+  RideRelay.listener(pair, f => {
+    if (!f || typeof f.lat !== "number" || Date.now() - f.t > 60000) return;   /* ignore an old position left over from an earlier ride */
+    accept({ lat: f.lat, lon: f.lon, acc: f.acc || 30, heading: f.h, speed: f.s, at: Date.now(), src: "phone" });
+  }, up => { phoneUp = up; locStatus(); }).catch(() => {});
+}
+function locStatus() {
+  const g = !hasGeo ? "not supported" : fresh(lastNative, 20000) ? "✓ working" : geoErr === 1 ? "blocked" : geoErr === 2 ? "no signal" : geoErr === 3 ? "timed out" : "waiting";
+  const ph = !paired ? "not paired" : fresh(lastPhone, 20000) ? "✓ working" : phoneUp ? "connected, not sharing" : "connecting";
+  const line = "Glasses location: " + g + "  ·  Phone page: " + ph;
+  $("locline").textContent = line;
+  if (waitingFix) $("loading").innerHTML = "Finding your location…<br><span style='font-size:17px;color:#b9bcc2;font-weight:500'>" + line + "</span>";
+}
+function showLocHelp() {
+  const why = geoErr === 1 ? "Location is blocked for Ride Along." : !hasGeo ? "This browser can't share location." : "Your glasses didn't get a location from your phone.";
+  $("lh-why").textContent = why;
+  const s = [];
+  if (paired) s.push("<b>Fastest fix:</b> on your iPhone, open the Ride Along setup page in Safari and tap <b>Share my location</b>. Keep that page open on screen. This page continues by itself.");
+  else s.push("<b>Fastest fix:</b> on your iPhone, open the Ride Along setup page in Safari and tap <b>Add Ride Along</b> again (this pairs your phone), then tap <b>Share my location</b>.");
+  s.push("iPhone <b>Settings › Privacy &amp; Security › Location Services</b>: turn it on, then <b>Meta AI › While Using the App</b> and <b>Precise</b> on.");
+  if (geoErr === 1) s.push("If the glasses asked to share your location and it was declined, remove Ride Along in the Meta AI app web apps list and add it again, then pick Allow.");
+  $("lh-steps").innerHTML = s.map(x => "<li>" + x + "</li>").join("");
+  waitingStart = true; $("lochelp").classList.add("on"); locStatus();
+  setTimeout(() => $("lh-retry").focus(), 60);
+}
+$("lh-retry").onclick = async () => {
+  $("lh-retry").textContent = "Looking…"; geoErr = -1; startWatch();
+  const f = await getHere(15000); $("lh-retry").textContent = "Try again";
+  if (!f) { showLocHelp(); toast("Still no location yet", 2500); }
+};
+$("lh-manual").onclick = () => { waitingStart = false; $("lochelp").classList.remove("on"); askStart(); };
+setInterval(() => { if (navOn) updateMode(); }, 3000);
 
 /* ---------- search (Photon, OpenStreetMap data) ---------- */
 function fmtPlace(f) {
@@ -336,17 +405,15 @@ async function pickPlace(p) {
   dest = p; remember(p);
   go("nav"); initMap(); setTimeout(() => map.invalidateSize(), 50);
   $("navui").style.display = "none"; $("ovcard").style.display = "none";
-  $("loading").classList.add("on"); $("loading").textContent = "Finding a route…";
-  from = await getHere(8000);
-  if (!from) {
-    $("loading").classList.remove("on");
-    toast("Can't get your location here. Search a starting point instead.", 4000);
-    askStart(); return;
-  }
+  $("lochelp").classList.remove("on"); waitingStart = false;
+  $("loading").classList.add("on"); waitingFix = true; locStatus();
+  const f = await getHere(15000); waitingFix = false;
+  if (!f) { $("loading").classList.remove("on"); showLocHelp(); return; }
+  from = { lat: f.lat, lon: f.lon };
   await buildRoute();
 }
 async function buildRoute() {
-  $("loading").classList.add("on");
+  $("loading").textContent = "Finding a route…"; $("loading").classList.add("on");
   try { useRoute(await fetchRoute(from, dest)); }
   catch (e) { $("loading").classList.remove("on"); toast("Couldn't find a driving route there.", 3500); history.back(); return; }
   $("loading").classList.remove("on");
@@ -435,16 +502,20 @@ function steps() { return route.legs[0].steps; }
 $("b-go").onclick = () => startNav();
 function startNav() {
   navOn = true; $("ovcard").style.display = "none"; $("navui").style.display = "block";
-  manual = !(gpsOk && here && !(from && from.manual)); cur = 1; along = 0; offCount = 0; follow = true;
-  if (!manual && !puck) puck = L.marker([here.lat, here.lon], { icon: L.divIcon({ className: "", html: '<div class="puck"></div>', iconSize: [26, 26], iconAnchor: [13, 13] }), keyboard: false, interactive: false, zIndexOffset: 1000 }).addTo(map);
-  if (!manual) onFix(); else drawManual();
+  manual = !(here && Date.now() - hereAt < 20000) || !!(from && from.manual); cur = 1; along = 0; offCount = 0; follow = true;
+  if (!manual) { ensurePuck(); onFix(); } else drawManual();
   updateMode(); setTimeout(() => $(manual ? "b-next" : "b-steps").focus(), 60);
 }
 function stopNav() { navOn = false; if (turnMk) { turnMk.remove(); turnMk = null; } }
 $("b-end").onclick = () => { stopNav(); history.back(); };
+function ensurePuck() {
+  if (!puck) puck = L.marker([here.lat, here.lon], { icon: L.divIcon({ className: "", html: '<div class="puck"></div>', iconSize: [26, 26], iconAnchor: [13, 13] }), keyboard: false, interactive: false, zIndexOffset: 1000 }).addTo(map);
+}
 function updateMode() {
   const m = $("mode"); if (!navOn) return;
-  m.className = manual ? "" : "gps"; m.textContent = manual ? "TAP NEXT" : "● GPS";
+  const lost = !manual && Date.now() - hereAt > 20000;
+  m.className = manual ? "" : lost ? "lost" : "gps";
+  m.textContent = manual ? "TAP NEXT" : lost ? "○ LOCATION LOST" : src === "phone" ? "● PHONE GPS" : "● GPS";
   $("b-prev").style.display = manual ? "" : "none"; $("b-next").style.display = manual ? "" : "none";
 }
 /* project the GPS fix onto the route line: how far along we are, and how far off it */
@@ -462,7 +533,14 @@ function project(p) {
   return best;
 }
 function onFix() {
-  if (!navOn || manual || !route || !here) return;
+  if (!navOn || !route || !here) return;
+  if (manual) {
+    /* a live location showed up mid-ride: switch from tapping Next to live turns */
+    const pr0 = project([here.lat, here.lon]);
+    manual = false; ensurePuck(); if (turnMk) { turnMk.remove(); turnMk = null; }
+    along = 0; updateMode(); toast("Live location on 📍", 2500);
+    if (pr0.d > 400) { reroute(); return; }
+  }
   const p = [here.lat, here.lon];
   if (puck) puck.setLatLng(p);
   const pr = project(p);
@@ -479,7 +557,7 @@ function onFix() {
 }
 async function reroute() {
   lastReroute = Date.now(); offCount = 0; toast("Rerouting…", 2000);
-  try { from = { lat: here.lat, lon: here.lon }; useRoute(await fetchRoute(from, dest)); along = 0; onFix(); } catch (e) {}
+  try { from = { lat: here.lat, lon: here.lon }; useRoute(await fetchRoute(from, dest)); along = 0; offCount = 0; onFix(); } catch (e) {}
 }
 function drawManual() {
   const st = steps(); cur = Math.max(1, Math.min(st.length - 1, cur));

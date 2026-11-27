@@ -30,6 +30,12 @@
   .warn { border-left:4px solid var(--red); }
   code { word-break:break-all; font-size:13px; }
   .empty { color:var(--dim); padding:6px 4px; }
+  #share { font-size:20px; padding:18px; background:var(--green); color:#000; }
+  #share.on { background:var(--red); color:#fff; }
+  #sstat { margin-top:10px; font-size:15px; color:var(--dim); line-height:1.5; }
+  #sstat b { color:var(--fg); }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--dim); margin-right:6px; }
+  .dot.ok { background:var(--green); }
 </style>
 </head>
 <body>
@@ -39,8 +45,16 @@
 
   <div class="card warn"><b>Passenger only.</b> Never use it while you drive. When you drive, use Apple Maps on your phone or CarPlay, and its voice plays through your glasses.</div>
 
+  <h2>Ride time: share your location</h2>
+  <div class="card">
+    <button class="btn" id="share">📍 Share my location with my glasses</button>
+    <div id="sstat">Tap when you get in the car. Keep this page open with the screen on (it stays awake by itself). If you lock the phone or switch apps, iPhone pauses the location until you come back.</div>
+  </div>
+  <p class="note">Your location goes only to your glasses. It's encrypted with a key that lives on this phone and in your glasses' Ride Along link, sent over a random private channel. Nothing is saved.</p>
+
   <h2>1. Add it to your glasses</h2>
   <a class="btn" id="add" href="#">Add Ride Along to my glasses</a>
+  <p class="note">Already added it before today? Tap this once more so your glasses get paired with this phone.</p>
   <p class="note">Did nothing happen? In the Meta AI app go to App Settings → Apps → Web Apps → Connect Web App and paste:<br><code id="addurl"></code></p>
 
   <h2>2. Favorites (optional)</h2>
@@ -54,6 +68,7 @@
 
   <p class="note" style="margin-top:28px">Maps © OpenStreetMap contributors. Routes by OSRM. Search by Photon. These are free community services that are fine for personal use.</p>
 </main>
+<script src="relay.js"></script>
 <script>
 const base = new URL("ride.html", location.href).href;
 function deep(name, url) { return "fb-viewapp://web_app_deep_link?appName=" + encodeURIComponent(name) + "&appUrl=" + encodeURIComponent(url); }
@@ -61,9 +76,14 @@ function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 function recall(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 function favs() { try { return JSON.parse(recall("ra.favs") || "[]"); } catch (e) { return []; } }
 function b64(s) { return btoa(unescape(encodeURIComponent(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
+/* One pairing key per phone: it goes into the glasses' link so only they can read this phone's location */
+let pair = recall("ra.pair");
+if (!pair || !RideRelay.parsePair(pair)) { pair = RideRelay.newPair(); store("ra.pair", pair); }
 function appUrl() {
   const f = favs().map(p => ({ name: p.name, addr: p.addr, lat: +p.lat.toFixed(6), lon: +p.lon.toFixed(6) }));
-  return f.length ? base + "?p=" + b64(JSON.stringify(f)) : base;
+  const u = new URL(base); u.searchParams.set("k", pair);
+  if (f.length) u.searchParams.set("p", b64(JSON.stringify(f)));
+  return u.href;
 }
 function refreshAdd() { const u = appUrl(); document.getElementById("add").href = deep("Ride Along", u); document.getElementById("addurl").textContent = u; }
 function drawFavs() {
@@ -114,6 +134,41 @@ async function search(q) {
 }
 document.getElementById("q").addEventListener("input", e => { clearTimeout(t); t = setTimeout(() => search(e.target.value.trim()), 350); });
 drawFavs(); refreshAdd();
+
+/* ---- Share my location ---- */
+let sharing = false, watchId = null, relay = null, lock = null, sent = 0, lastFix = null, lastSent = 0, up = false, err = "";
+const sb = document.getElementById("share"), ss = document.getElementById("sstat");
+function ago(t) { if (!t) return "never"; const s = Math.round((Date.now() - t) / 1000); return s < 2 ? "just now" : s + "s ago"; }
+function paint() {
+  if (!sharing) return;
+  ss.innerHTML = '<span class="dot ' + (up ? "ok" : "") + '"></span>' + (up ? "<b>Connected</b>" : "Connecting…") +
+    ' · <span class="dot ' + (lastFix && Date.now() - lastFix.t < 10000 ? "ok" : "") + '"></span>GPS ' + (lastFix ? "±" + Math.round(lastFix.acc) + " m" : "waiting") +
+    "<br>Sent to glasses: <b>" + ago(lastSent) + "</b> (" + sent + " updates)" + (err ? '<br><span style="color:var(--red)">' + err + "</span>" : "") +
+    "<br>Keep this page open and the screen on until you arrive.";
+}
+async function wake() { try { if ("wakeLock" in navigator && document.visibilityState === "visible") lock = await navigator.wakeLock.request("screen"); } catch (e) {} }
+document.addEventListener("visibilitychange", () => { if (sharing && document.visibilityState === "visible") { wake(); if (lastFix) push(lastFix); } });
+async function push(f) { if (!relay) return; if (await relay.send(f)) { sent++; lastSent = Date.now(); } paint(); }
+async function startShare() {
+  sharing = true; sb.classList.add("on"); sb.textContent = "⏹ Stop sharing"; err = ""; paint(); wake();
+  try { relay = await RideRelay.sender(pair, s => { up = s; paint(); }); } catch (e) { err = "Couldn't start the secure channel."; paint(); }
+  watchId = navigator.geolocation.watchPosition(p => {
+    const c = p.coords; err = "";
+    lastFix = { lat: +c.latitude.toFixed(6), lon: +c.longitude.toFixed(6), acc: Math.round(c.accuracy), h: c.heading == null || isNaN(c.heading) ? null : Math.round(c.heading), s: c.speed == null ? null : +c.speed.toFixed(1), t: Date.now() };
+    push(lastFix);
+  }, e => { err = e.code === 1 ? "Location is blocked for Safari. iPhone Settings › Privacy & Security › Location Services › Safari Websites › While Using." : "No GPS yet. Step outside or wait a moment."; paint(); },
+  { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+  /* resend the last position every few seconds so the glasses never go stale while you sit at a light */
+  keep = setInterval(() => { if (lastFix && Date.now() - lastSent > 4000) push(Object.assign({}, lastFix, { t: Date.now() })); paint(); }, 2000);
+}
+let keep = null;
+function stopShare() {
+  sharing = false; sb.classList.remove("on"); sb.textContent = "📍 Share my location with my glasses";
+  try { navigator.geolocation.clearWatch(watchId); } catch (e) {}
+  clearInterval(keep); if (relay) relay.stop(); relay = null; try { lock && lock.release(); } catch (e) {}
+  ss.textContent = "Stopped. Your glasses no longer get your location.";
+}
+sb.onclick = () => sharing ? stopShare() : startShare();
 </script>
 </body>
 </html>
