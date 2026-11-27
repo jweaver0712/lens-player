@@ -386,7 +386,17 @@ function showCover(item) {
   img.style.visibility = "visible";
   img.src = item.thumb || (item.t === "v" ? "https://i.ytimg.com/vi/" + item.id + "/mqdefault.jpg" : "");
   c.classList.add("on");
+  /* Lift the cover as soon as anything plays. YouTube ads report state -1 while their clock runs,
+     so watch the clock too, otherwise the cover would hide the ad and feel like a long load. */
+  clearInterval(coverT);
+  const t0 = Date.now();
+  coverT = setInterval(() => {
+    if (!c.classList.contains("on")) return clearInterval(coverT);
+    let moving = false; try { moving = player.getCurrentTime() > 0.2 || [1, 2].includes(player.getPlayerState()); } catch (e) {}
+    if (moving || Date.now() - t0 > 12000) { c.classList.remove("on"); clearInterval(coverT); }
+  }, 250);
 }
+let coverT = null;
 function play(item, q, i) {
   current = item; queue = q || []; qi = typeof i === "number" ? i : -1;
   go("play");
