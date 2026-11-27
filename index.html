@@ -305,7 +305,8 @@ function handleErr(e) {
   else feedMessage("Couldn't reach YouTube. Check your phone's signal and try the tab again.");
 }
 const thumb = sn => (sn.thumbnails && (sn.thumbnails.medium || sn.thumbnails.high || sn.thumbnails.default) || {}).url;
-const usable = it => it.id && it.title && it.title !== "Private video" && it.title !== "Deleted video";
+const unesc = t => { const d = document.createElement("textarea"); d.innerHTML = t || ""; return d.value; };  /* search returns titles like "Check &amp; Replace" */
+const usable = it => { it.title = unesc(it.title); it.channel = unesc(it.channel); return it.id && it.title && it.title !== "Private video" && it.title !== "Deleted video"; };
 
 async function loadSubs() {
   const subs = await yt("subscriptions", { part: "snippet", mine: "true", maxResults: "50", order: "relevance" }, true);
