@@ -6,6 +6,11 @@
 <meta name="application-name" content="Lens Player">
 <meta name="theme-color" content="#000000">
 <title>Lens Player</title>
+<link rel="preconnect" href="https://www.youtube.com">
+<link rel="preconnect" href="https://i.ytimg.com">
+<link rel="preconnect" href="https://www.googleapis.com">
+<link rel="dns-prefetch" href="https://googlevideo.com">
+<link rel="preconnect" href="https://www.google.com">
 <style>
   /* Built for the Meta Ray-Ban Display: a 600x600 lens. Black shows as see-through, so the UI keeps a black background. */
   :root { --fg:#f2f2f2; --dim:#9a9a9a; --accent:#ffb020; --ok:#4cd08a; --bad:#ff6b5b; --card:#111; --edge:#222; }
@@ -49,6 +54,10 @@
   /* player */
   #player-wrap { width:100%; aspect-ratio:16/9; background:#000; position:relative; flex-shrink:0; }
   #player-wrap iframe, #yt { width:100%; height:100%; border:0; display:block; }
+  #cover { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:#000; }
+  #cover.on { display:flex; }
+  #cover img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.45; }
+  #cover span { position:relative; font-size:26px; font-weight:600; padding:10px 20px; border-radius:14px; background:rgba(0,0,0,.6); }
   #now { font-size:22px; color:var(--dim); margin:10px 22px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; height:30px; }
   #controls { display:flex; gap:10px; padding:14px 16px 0; justify-content:center; }
   .btn { width:22%; max-width:128px; aspect-ratio:1; border-radius:20px; border:3px solid var(--edge); background:var(--card);
@@ -91,7 +100,7 @@
 
 <!-- PLAYER -->
 <section id="play" class="screen" aria-label="Player">
-  <div id="player-wrap"><div id="yt"></div></div>
+  <div id="player-wrap"><div id="yt"></div><div id="cover"><img id="cover-img" alt="" onerror="this.style.visibility='hidden'"><span>Loading…</span></div></div>
   <div id="now">Loading…</div>
   <div id="controls">
     <button class="btn" id="b-prev" data-act="prev">⏮<small>Prev</small></button>
@@ -147,7 +156,7 @@ let stack = ["home"];
 function screenIs(id) { return $(id).classList.contains("on"); }
 function render(id) {
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === id));
-  if (id !== "play" && player && player.stopVideo) { try { player.stopVideo(); } catch (e) {} }
+  if (id !== "play" && player && player.pauseVideo) { try { player.pauseVideo(); } catch (e) {} }
   if (id !== "link") stopPolling();
   setDark(false, true);
   setTimeout(() => focusFirst(id), 30);
@@ -357,36 +366,49 @@ function showSearch() {
 }
 
 /* ================= Player (YouTube's official IFrame player) ================= */
-let player = null, apiReady = false, pending = null, current = null, queue = [], qi = -1;
-window.onYouTubeIframeAPIReady = () => { apiReady = true; if (pending) { const p = pending; pending = null; startPlayer(p); } };
+let player = null, playerReady = false, pending = null, current = null, queue = [], qi = -1;
+/* Speed: build ONE player as soon as the app opens (hidden), so YouTube's heavy player code downloads
+   while you browse. Pinching a video then just swaps the video in, instead of rebuilding the player. */
+window.onYouTubeIframeAPIReady = () => {
+  player = new YT.Player("yt", {
+    width: 600, height: 338,
+    playerVars: { playsinline: 1, controls: 0, rel: 0, iv_load_policy: 3, fs: 0 },
+    events: {
+      onReady: () => { playerReady = true; if (pending) { const p = pending; pending = null; load(p); } },
+      onStateChange: onState, onError: onErr
+    }
+  });
+};
 (function () { const s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api"; s.onerror = () => toast("Can't reach YouTube. Check your phone's signal.", 5000); document.head.appendChild(s); })();
 
+function showCover(item) {
+  const c = $("cover"), img = $("cover-img");
+  img.style.visibility = "visible";
+  img.src = item.thumb || (item.t === "v" ? "https://i.ytimg.com/vi/" + item.id + "/mqdefault.jpg" : "");
+  c.classList.add("on");
+}
 function play(item, q, i) {
   current = item; queue = q || []; qi = typeof i === "number" ? i : -1;
   go("play");
   $("now").textContent = item.title || "Loading…";
-  if (!apiReady) { pending = item; toast("Loading YouTube…"); return; }
-  startPlayer(item);
+  showCover(item);
+  if (!playerReady) { pending = item; return; }
+  load(item);
 }
-function startPlayer(item) {
-  const vars = { autoplay: 1, playsinline: 1, controls: 0, rel: 0, iv_load_policy: 3, fs: 0 };
-  if (item.t === "p") { vars.listType = "playlist"; vars.list = item.id; }
-  if (player && player.destroy) { try { player.destroy(); } catch (e) {} $("player-wrap").innerHTML = '<div id="yt"></div>'; }
-  player = new YT.Player("yt", {
-    width: 600, height: 338, videoId: item.t === "v" ? item.id : undefined, playerVars: vars,
-    events: { onReady: e => e.target.playVideo(), onStateChange: onState, onError: onErr }
-  });
+function load(item) {
+  if (item.t === "p") player.loadPlaylist({ list: item.id, listType: "playlist" });
+  else player.loadVideoById({ videoId: item.id, suggestedQuality: "medium" });
 }
 function nextInQueue(d) {
   if (!queue.length || qi < 0) return false;
   const n = qi + d; if (n < 0 || n >= queue.length) { toast(d > 0 ? "That was the last one." : "That's the first one."); return true; }
   qi = n; current = queue[n]; $("now").textContent = current.title || "";
-  player.loadVideoById(current.id); return true;
+  showCover(current); load(current); return true;
 }
 function onState(e) {
   const pp = $("b-pp").querySelector("small");
   if (e.data === YT.PlayerState.PLAYING) {
-    pp.textContent = "Pause";
+    pp.textContent = "Pause"; $("cover").classList.remove("on");
     const d = player.getVideoData && player.getVideoData(); if (d && d.title) $("now").textContent = d.title;
   } else if (e.data === YT.PlayerState.PAUSED) pp.textContent = "Play";
   else if (e.data === YT.PlayerState.ENDED) { pp.textContent = "Play"; if (current && current.t === "v") nextInQueue(1); }
