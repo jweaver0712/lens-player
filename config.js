@@ -4,5 +4,5 @@
 window.LP_CONFIG = {
   clientId: "",
   clientSecret: "",
-  apiKey: ""   /* YouTube Data API key: turns on Home and Search */
+  apiKey: "AIzaSyBdwKJBGl2z6U6xBh8qd3QPdHMVJsawxsQ"   /* YouTube Data API key, locked to jweaver0712.github.io and YouTube Data API v3 only */
 };
