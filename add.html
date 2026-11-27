@@ -45,6 +45,12 @@
     <span class="go">Set up</span>
   </a>
 
+  <a class="add" id="a-claude" href="https://office.fixitservices.com/#glasses">
+    <span class="ico" style="background:linear-gradient(135deg,#7a3e22,#c46a3f)">✦</span>
+    <span><span class="t">Claude</span><br><span class="d">Ask Claude anything — say it, read or hear the answer</span></span>
+    <span class="go">Set up</span>
+  </a>
+
   <p class="note">Nothing happens when you tap? In the Meta AI app go to App Settings → Apps → Web Apps → Connect Web App and paste the address shown under the button you wanted.</p>
   <p class="note" id="urls"></p>
 </main>
@@ -61,6 +67,7 @@ for (const [id, a] of Object.entries(apps)) {
   lines.push(a.name + ": <code>" + a.url + "</code>");
 }
 document.getElementById("urls").innerHTML = lines.join("<br>");
+/* Claude: its private link is made in the Fixit back office (Account › Meta glasses › 3 · Claude), which then shows "Add Claude to my glasses" */
 /* Ride Along needs its setup page (it pairs your phone for live location) */
 document.getElementById("a-ride").href = base + "ride-setup.html";
 </script>
