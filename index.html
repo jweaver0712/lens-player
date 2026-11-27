@@ -61,7 +61,7 @@
     width:160vw; height:90vw; transform:translate(-50%,-50%) scale(.625); transform-origin:center;
     /* The lens adds light to what you see, so dark parts of a video turn see-through and colors wash out.
        Lifting shadows and contrast a little makes the picture read much clearer in the lens. */
-    filter:brightness(1.18) contrast(1.12) saturate(1.15); }
+    filter:url(#sharp) brightness(1.18) contrast(1.12) saturate(1.15); }
   #play.fill #player-wrap iframe, #play.fill #yt { width:266.67vh; height:150vh; transform:translate(-50%,-50%) scale(.6667); }
   #hud-top, #hud { position:absolute; left:0; right:0; z-index:3; transition:opacity .25s; }
   #hud-top { top:0; padding:14px 20px 34px; background:linear-gradient(rgba(0,0,0,.85), transparent); }
@@ -71,6 +71,8 @@
   #cover.on { display:flex; }
   #cover img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:.45; }
   #cover span { position:relative; font-size:26px; font-weight:600; padding:10px 20px; border-radius:14px; background:rgba(0,0,0,.6); }
+  #qual { font-size:17px; font-weight:600; color:var(--dim); margin-top:4px; }
+  #qual.low { color:var(--accent); }
   #now { font-size:24px; font-weight:600; color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #controls { display:flex; gap:8px; justify-content:center; }
   .btn { width:18.5%; max-width:112px; aspect-ratio:1; border-radius:20px; border:3px solid var(--edge); background:var(--card);
@@ -114,7 +116,7 @@
 <!-- PLAYER -->
 <section id="play" class="screen" aria-label="Player">
   <div id="player-wrap"><div id="yt"></div><div id="cover"><img id="cover-img" alt="" onerror="this.style.visibility='hidden'"><span>Loading…</span></div></div>
-  <div id="hud-top"><div id="now">Loading…</div></div>
+  <div id="hud-top"><div id="now">Loading…</div><div id="qual"></div></div>
   <div id="hud"><div id="controls">
     <button class="btn" id="b-prev" data-act="prev">⏮<small>Prev</small></button>
     <button class="btn" id="b-pp"   data-act="pp">⏯<small>Pause</small></button>
@@ -126,6 +128,9 @@
 </section>
 
 <div id="toast" role="status"></div>
+<!-- Light sharpening for the video. Edges get a little crisper on the small lens. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="sharp" color-interpolation-filters="sRGB">
+  <feConvolveMatrix order="3" kernelMatrix="0 -0.35 0 -0.35 2.4 -0.35 0 -0.35 0" preserveAlpha="true"/></filter></svg>
 
 <script src="config.js"></script>
 <script>
@@ -413,12 +418,22 @@ window.onYouTubeIframeAPIReady = () => {
     playerVars: { playsinline: 1, controls: 0, rel: 0, iv_load_policy: 3, fs: 0 },
     events: {
       onReady: () => { playerReady = true; if (pending) { const p = pending; pending = null; load(p); } },
-      onStateChange: onState, onError: onErr
+      onStateChange: onState, onError: onErr, onPlaybackQualityChange: showQuality
     }
   });
 };
 (function () { const s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api"; s.onerror = () => toast("Can't reach YouTube. Check your phone's signal.", 5000); document.head.appendChild(s); })();
 
+/* Show the stream quality so a blurry picture can be traced: low numbers mean the phone's connection is the limit. */
+const QNAMES = { tiny: "144p", small: "240p", medium: "360p", large: "480p", hd720: "720p", hd1080: "1080p", highres: "4K" };
+function showQuality() {
+  let q = ""; try { q = player.getPlaybackQuality(); } catch (e) {}
+  const name = QNAMES[q]; const el = $("qual");
+  if (!name) { el.textContent = ""; return; }
+  const low = ["tiny", "small", "medium"].includes(q);
+  el.textContent = "Quality " + name + (low ? " · probably your phone's signal" : "");
+  el.classList.toggle("low", low);
+}
 function setFill(on) {
   $("play").classList.toggle("fill", on);
   $("b-zoom").querySelector("small").textContent = on ? "Fit" : "Fill";
@@ -464,7 +479,7 @@ function nextInQueue(d) {
 function onState(e) {
   const pp = $("b-pp").querySelector("small");
   if (e.data === YT.PlayerState.PLAYING) {
-    pp.textContent = "Pause"; $("cover").classList.remove("on"); armHud();
+    pp.textContent = "Pause"; $("cover").classList.remove("on"); armHud(); showQuality();
     const d = player.getVideoData && player.getVideoData(); if (d && d.title) $("now").textContent = d.title;
   } else if (e.data === YT.PlayerState.PAUSED) { pp.textContent = "Play"; showHud(); }
   else if (e.data === YT.PlayerState.ENDED) { pp.textContent = "Play"; if (current && current.t === "v") nextInQueue(1); }
