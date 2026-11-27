@@ -81,10 +81,10 @@
 <!-- MY YOUTUBE FEED -->
 <section id="feed" class="screen" aria-label="My YouTube">
   <div class="tabs">
+    <button class="tab" data-tab="home">Home</button>
+    <button class="tab" data-tab="search">Search</button>
     <button class="tab" data-tab="subs">Subs</button>
     <button class="tab" data-tab="liked">Liked</button>
-    <button class="tab" data-tab="lists">Lists</button>
-    <button class="tab" data-tab="search">Search</button>
   </div>
   <div id="feed-list" class="scroller"></div>
 </section>
@@ -215,11 +215,13 @@ async function accessToken() {
   if (!r.ok) { if (r.j.error === "invalid_grant") saveTok(null); return null; }
   t.access = r.j.access_token; t.exp = Date.now() + (r.j.expires_in || 3600) * 1000; saveTok(t); return t.access;
 }
-async function yt(path, params) {
+/* Public browsing (Home, Search) works with just an API key. Subs and Liked need you signed in. */
+async function yt(path, params, needsSignIn) {
   if (DEMO) return demoApi(path, params);
-  const a = await accessToken();
-  if (!a) throw new Error("signin");
-  const r = await fetch("https://www.googleapis.com/youtube/v3/" + path + "?" + new URLSearchParams(params), { headers: { Authorization: "Bearer " + a } });
+  const a = isLinked() ? await accessToken() : null;
+  if (!a && (needsSignIn || !CFG.apiKey)) throw new Error(needsSignIn ? "signin" : "setup");
+  const q = new URLSearchParams(params); if (!a) q.set("key", CFG.apiKey);
+  const r = await fetch("https://www.googleapis.com/youtube/v3/" + path + "?" + q, a ? { headers: { Authorization: "Bearer " + a } } : {});
   const j = await r.json().catch(() => ({}));
   if (r.status === 401) { const t = tok(); if (t) { t.exp = 0; saveTok(t); } throw new Error("signin"); }
   if (!r.ok) { const reason = j.error && j.error.errors && j.error.errors[0] && j.error.errors[0].reason; throw new Error(reason === "quotaExceeded" ? "quota" : "api"); }
@@ -255,8 +257,7 @@ async function startLink() {
 }
 
 function openMyYouTube() {
-  if (!isLinked()) return startLink();
-  go("feed"); showTab(currentTab || "subs");
+  go("feed"); showTab(currentTab || "home");
 }
 
 /* ================= Feed ================= */
@@ -291,13 +292,15 @@ async function showTab(tab) {
   if (cache[tab] && Date.now() - cache[tab].at < 10 * 60000) return renderCards(cache[tab].items);
   feedMessage("Loading…");
   try {
-    const items = tab === "subs" ? await loadSubs() : tab === "liked" ? await loadLiked() : await loadPlaylists();
+    if ((tab === "subs" || tab === "liked") && !isLinked()) return signInPrompt();
+    const items = tab === "subs" ? await loadSubs() : tab === "liked" ? await loadLiked() : await loadHome();
     cache[tab] = { at: Date.now(), items };
-    if (currentTab === tab) renderCards(items, tab === "subs" ? "No subscriptions found on this account." : tab === "liked" ? "No liked videos yet." : "No playlists on this account.");
+    if (currentTab === tab) renderCards(items, tab === "subs" ? "No subscriptions found on this account." : tab === "liked" ? "No liked videos yet." : "Nothing trending right now.");
   } catch (e) { handleErr(e); }
 }
 function handleErr(e) {
-  if (e.message === "signin") { feedMessage("You're signed out. Opening sign-in…"); setTimeout(startLink, 900); }
+  if (e.message === "setup") feedMessage("YouTube browsing isn't switched on yet. It needs the free Google key from the setup guide.");
+  else if (e.message === "signin") { feedMessage("You're signed out. Opening sign-in…"); setTimeout(startLink, 900); }
   else if (e.message === "quota") feedMessage("Google's free daily limit is used up. It resets at midnight Pacific.");
   else feedMessage("Couldn't reach YouTube. Check your phone's signal and try the tab again.");
 }
@@ -305,17 +308,26 @@ const thumb = sn => (sn.thumbnails && (sn.thumbnails.medium || sn.thumbnails.hig
 const usable = it => it.id && it.title && it.title !== "Private video" && it.title !== "Deleted video";
 
 async function loadSubs() {
-  const subs = await yt("subscriptions", { part: "snippet", mine: "true", maxResults: "50", order: "relevance" });
+  const subs = await yt("subscriptions", { part: "snippet", mine: "true", maxResults: "50", order: "relevance" }, true);
   const ch = (subs.items || []).map(s => s.snippet.resourceId.channelId).filter(Boolean).slice(0, 25);
-  const per = await Promise.allSettled(ch.map(id => yt("playlistItems", { part: "snippet,contentDetails", playlistId: "UU" + id.slice(2), maxResults: "3" })));
+  const per = await Promise.allSettled(ch.map(id => yt("playlistItems", { part: "snippet,contentDetails", playlistId: "UU" + id.slice(2), maxResults: "3" }, true)));
   const items = [];
   per.forEach(p => { if (p.status === "fulfilled") (p.value.items || []).forEach(v => items.push({
     t: "v", id: v.contentDetails.videoId, title: v.snippet.title, channel: v.snippet.videoOwnerChannelTitle || v.snippet.channelTitle,
     published: v.contentDetails.videoPublishedAt || v.snippet.publishedAt, thumb: thumb(v.snippet) })); });
   return items.filter(usable).sort((a, b) => new Date(b.published) - new Date(a.published)).slice(0, 40);
 }
+async function loadHome() {
+  const j = await yt("videos", { part: "snippet", chart: "mostPopular", regionCode: "US", maxResults: "40" });
+  return (j.items || []).map(v => ({ t: "v", id: v.id, title: v.snippet.title, channel: v.snippet.channelTitle, published: v.snippet.publishedAt, thumb: thumb(v.snippet) })).filter(usable);
+}
+function signInPrompt() {
+  const box = $("feed-list"); box.innerHTML = "";
+  box.appendChild(el("div", "msg", "Sign in once to see videos from channels you follow and your liked videos."));
+  const b = el("button", "tile", "Sign in with Google"); b.addEventListener("click", startLink); box.appendChild(b);
+}
 async function loadLiked() {
-  const j = await yt("videos", { part: "snippet", myRating: "like", maxResults: "30" });
+  const j = await yt("videos", { part: "snippet", myRating: "like", maxResults: "30" }, true);
   return (j.items || []).map(v => ({ t: "v", id: v.id, title: v.snippet.title, channel: v.snippet.channelTitle, published: v.snippet.publishedAt, thumb: thumb(v.snippet) })).filter(usable);
 }
 async function loadPlaylists() {
@@ -405,13 +417,16 @@ $("controls").addEventListener("click", e => {
 });
 
 /* ================= Demo data (?demo=1) so the layout can be checked without signing in ================= */
-function demoApi(path) {
+function demoApi(path, params) {
   const v = (t, c, h) => ({ id: "dQw4w9WgXcQ", snippet: { title: t, channelTitle: c, publishedAt: new Date(Date.now() - h * 3600e3).toISOString(), thumbnails: {} } });
   if (path === "subscriptions") return { items: [{ snippet: { resourceId: { channelId: "UCdemo1" } } }] };
   if (path === "playlistItems") return { items: [
     ["Why your AC capacitor keeps failing", "HVAC School", 3], ["200A panel upgrade start to finish", "Electrician U", 9],
     ["Tankless water heater descale in 10 minutes", "Plumbing Pro", 20], ["Dryer not heating? Check these 3 parts", "Appliance Fix", 30]
   ].map(([t, c, h]) => ({ snippet: { title: t, videoOwnerChannelTitle: c, thumbnails: {} }, contentDetails: { videoId: "dQw4w9WgXcQ", videoPublishedAt: new Date(Date.now() - h * 3600e3).toISOString() } })) };
+  if (path === "videos" && params && params.chart) return { items: [
+    v("Top 10 tools every new electrician needs", "Tool Talk", 5), v("Why heat pumps freeze up in winter", "HVAC School", 8),
+    v("I fixed a $40 dishwasher problem the dealer wanted $600 for", "Appliance Fix", 14), v("Running PEX like a pro", "Plumbing Pro", 22)] };
   if (path === "videos") return { items: [v("Liked demo video", "Some channel", 50)] };
   if (path === "playlists") return { items: [{ id: "PLdemo", snippet: { title: "Watch on the job", thumbnails: {} }, contentDetails: { itemCount: 12 } }] };
   return { items: [{ id: { videoId: "dQw4w9WgXcQ" }, snippet: { title: "Search result demo", channelTitle: "Demo", publishedAt: new Date().toISOString(), thumbnails: {} } }] };

@@ -3,5 +3,6 @@
    Leave clientId empty until the one-time Google Cloud setup is done. */
 window.LP_CONFIG = {
   clientId: "",
-  clientSecret: ""
+  clientSecret: "",
+  apiKey: ""   /* YouTube Data API key: turns on Home and Search */
 };
