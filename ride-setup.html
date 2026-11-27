@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ride Along Setup</title>
+<style>
+  :root { --bg:#f2f2f7; --card:#fff; --fg:#1c1c1e; --dim:#6c6c70; --line:#d8d8dc; --blue:#007aff; --green:#34c759; --red:#ff3b30; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#000; --card:#1c1c1e; --fg:#fff; --dim:#98989f; --line:#38383a; --blue:#0a84ff; --green:#30d158; --red:#ff453a; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:17px/1.45 -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:520px; margin:0 auto; padding:26px 16px 48px; }
+  h1 { font-size:30px; margin:0 0 4px; }
+  h2 { font-size:20px; margin:28px 0 10px; }
+  .sub { color:var(--dim); margin:0 0 18px; }
+  .card { background:var(--card); border-radius:16px; padding:16px; margin-bottom:12px; }
+  a.btn, button.btn { display:block; width:100%; text-align:center; text-decoration:none; font:inherit; font-weight:700; font-size:18px; border:0; border-radius:14px; padding:15px; color:#fff; background:var(--blue); cursor:pointer; }
+  a.btn.green { background:var(--green); color:#000; }
+  input { width:100%; font:inherit; font-size:18px; padding:14px 16px; border-radius:14px; border:1px solid var(--line); background:var(--card); color:var(--fg); outline:none; }
+  input:focus { border-color:var(--blue); }
+  .res { display:flex; gap:12px; align-items:center; padding:12px 4px; border-bottom:1px solid var(--line); }
+  .res:last-child { border-bottom:0; }
+  .res .t { font-weight:700; }
+  .res .a { color:var(--dim); font-size:15px; }
+  .res > div { flex:1; min-width:0; }
+  .mini { font:inherit; font-size:15px; font-weight:700; border:0; border-radius:10px; padding:9px 12px; background:var(--bg); color:var(--blue); cursor:pointer; white-space:nowrap; text-decoration:none; }
+  .mini.go { background:var(--blue); color:#fff; }
+  .mini.del { color:var(--red); }
+  .note { color:var(--dim); font-size:14px; }
+  .warn { border-left:4px solid var(--red); }
+  code { word-break:break-all; font-size:13px; }
+  .empty { color:var(--dim); padding:6px 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🧭 Ride Along</h1>
+  <p class="sub">Turn-by-turn directions in your glasses lens for when you're the <b>passenger</b>. Open this page on the phone that runs your Meta AI app.</p>
+
+  <div class="card warn"><b>Passenger only.</b> Never use it while you drive. When you drive, use Apple Maps on your phone or CarPlay, and its voice plays through your glasses.</div>
+
+  <h2>1. Add it to your glasses</h2>
+  <a class="btn" id="add" href="#">Add Ride Along to my glasses</a>
+  <p class="note">Did nothing happen? In the Meta AI app go to App Settings → Apps → Web Apps → Connect Web App and paste:<br><code id="addurl"></code></p>
+
+  <h2>2. Favorites (optional)</h2>
+  <p class="note" style="margin-top:-4px">Save places you go a lot, like the supply house or the shop. They show up first in the lens so you don't have to type. After you change favorites, tap the Add button above again.</p>
+  <div class="card" id="favs"></div>
+
+  <h2>3. Find a place</h2>
+  <input id="q" type="search" placeholder="Address or place, like Ferguson Supply Marietta" enterkeyhint="search">
+  <div class="card" id="results" style="margin-top:10px;display:none"></div>
+  <p class="note"><b>Send</b> opens Ride Along in your glasses with that place ready to go. <b>★</b> saves it as a favorite.</p>
+
+  <p class="note" style="margin-top:28px">Maps © OpenStreetMap contributors, © CARTO. Routes by OSRM. Search by Photon. These are free community services that are fine for personal use.</p>
+</main>
+<script>
+const base = new URL("ride.html", location.href).href;
+function deep(name, url) { return "fb-viewapp://web_app_deep_link?appName=" + encodeURIComponent(name) + "&appUrl=" + encodeURIComponent(url); }
+function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function recall(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function favs() { try { return JSON.parse(recall("ra.favs") || "[]"); } catch (e) { return []; } }
+function b64(s) { return btoa(unescape(encodeURIComponent(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
+function appUrl() {
+  const f = favs().map(p => ({ name: p.name, addr: p.addr, lat: +p.lat.toFixed(6), lon: +p.lon.toFixed(6) }));
+  return f.length ? base + "?p=" + b64(JSON.stringify(f)) : base;
+}
+function refreshAdd() { const u = appUrl(); document.getElementById("add").href = deep("Ride Along", u); document.getElementById("addurl").textContent = u; }
+function drawFavs() {
+  const box = document.getElementById("favs"), f = favs(); box.innerHTML = "";
+  if (!f.length) { box.innerHTML = '<div class="empty">No favorites yet. Search below and tap ★.</div>'; }
+  f.forEach((p, i) => {
+    const row = document.createElement("div"); row.className = "res";
+    row.innerHTML = '<span>⭐</span><div><div class="t"></div><div class="a"></div></div><a class="mini go">Send</a><button class="mini del">✕</button>';
+    row.querySelector(".t").textContent = p.name; row.querySelector(".a").textContent = p.addr || "";
+    row.querySelector(".go").href = sendLink(p);
+    row.querySelector(".del").onclick = () => { const g = favs(); g.splice(i, 1); store("ra.favs", JSON.stringify(g)); drawFavs(); refreshAdd(); };
+    box.appendChild(row);
+  });
+}
+function sendLink(p) {
+  const u = new URL(appUrl()); u.searchParams.set("to", p.lat.toFixed(6) + "," + p.lon.toFixed(6)); u.searchParams.set("name", p.name);
+  if (p.addr) u.searchParams.set("addr", p.addr);
+  return deep("Ride Along", u.href);
+}
+function fmt(f) {
+  const p = f.properties || {};
+  const name = p.name || [p.housenumber, p.street].filter(Boolean).join(" ") || p.city || "Place";
+  const street = p.name && p.street ? [p.housenumber, p.street].filter(Boolean).join(" ") : "";
+  return { name, addr: [street, p.city || p.town || p.village, p.state].filter(Boolean).join(", "), lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] };
+}
+let here = null;
+try { navigator.geolocation.getCurrentPosition(p => { here = p.coords; }, () => {}, { timeout: 8000, maximumAge: 60000 }); } catch (e) {}
+let t = null, seq = 0;
+async function search(q) {
+  const box = document.getElementById("results");
+  if (q.length < 3) { box.style.display = "none"; return; }
+  const my = ++seq;
+  let url = "https://photon.komoot.io/api/?limit=6&lang=en&q=" + encodeURIComponent(q);
+  if (here) url += "&lat=" + here.latitude.toFixed(4) + "&lon=" + here.longitude.toFixed(4);
+  try {
+    const j = await (await fetch(url)).json(); if (my !== seq) return;
+    const list = (j.features || []).map(fmt);
+    box.style.display = "block"; box.innerHTML = list.length ? "" : '<div class="empty">No places found. Try adding the city.</div>';
+    list.forEach(p => {
+      const row = document.createElement("div"); row.className = "res";
+      row.innerHTML = '<span>📍</span><div><div class="t"></div><div class="a"></div></div><button class="mini">★</button><a class="mini go">Send</a>';
+      row.querySelector(".t").textContent = p.name; row.querySelector(".a").textContent = p.addr;
+      row.querySelector(".go").href = sendLink(p);
+      row.querySelector("button").onclick = e => { const g = favs(); g.push(p); store("ra.favs", JSON.stringify(g.slice(-12))); drawFavs(); refreshAdd(); e.target.textContent = "✓"; };
+      box.appendChild(row);
+    });
+  } catch (e) { box.style.display = "block"; box.innerHTML = '<div class="empty">Search isn\'t reachable right now.</div>'; }
+}
+document.getElementById("q").addEventListener("input", e => { clearTimeout(t); t = setTimeout(() => search(e.target.value.trim()), 350); });
+drawFavs(); refreshAdd();
+</script>
+</body>
+</html>

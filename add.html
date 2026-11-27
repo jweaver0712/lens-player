@@ -39,6 +39,12 @@
     <span class="go">Add</span>
   </a>
 
+  <a class="add" id="a-ride" href="#">
+    <span class="ico" style="background:#0a84ff">🧭</span>
+    <span><span class="t">Ride Along</span><br><span class="d">Turn-by-turn directions for passengers</span></span>
+    <span class="go">Add</span>
+  </a>
+
   <p class="note">Nothing happens when you tap? In the Meta AI app go to App Settings → Apps → Web Apps → Connect Web App and paste the address shown under the button you wanted.</p>
   <p class="note" id="urls"></p>
 </main>
@@ -46,7 +52,8 @@
 const base = new URL("./", location.href).href;
 const apps = {
   "a-yt": { name: "YouTube", url: "https://m.youtube.com/" },
-  "a-my": { name: "My YouTube", url: base + "?start=my" }
+  "a-my": { name: "My YouTube", url: base + "?start=my" },
+  "a-ride": { name: "Ride Along", url: base + "ride.html" }
 };
 const lines = [];
 for (const [id, a] of Object.entries(apps)) {

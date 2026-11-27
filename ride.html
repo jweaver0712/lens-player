@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="application-name" content="Ride Along">
+<meta name="theme-color" content="#000000">
+<title>Ride Along</title>
+<link rel="preconnect" href="https://router.project-osrm.org">
+<link rel="preconnect" href="https://photon.komoot.io">
+<link rel="preconnect" href="https://a.basemaps.cartocdn.com">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<style>
+  /* Ride Along: passenger turn-by-turn for the Meta Ray-Ban Display (600x600 lens).
+     Black shows as see-through in the lens, so everything sits on black and uses bright, high-contrast parts.
+     The look borrows from Apple Maps: a dark turn banner on top, a blue route line, and an arrival bar at the bottom. */
+  :root { --fg:#fff; --dim:#b9bcc2; --card:#1c1c1e; --card2:#2c2c2e; --edge:#3a3a3c; --blue:#0a84ff; --green:#30d158; --red:#ff453a; --amber:#ffb020; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; width:100vw; height:100vh; overflow:hidden; background:#000; color:var(--fg);
+    font-family:-apple-system, "SF Pro Display", system-ui, "Segoe UI", Roboto, sans-serif; }
+  button { font:inherit; color:var(--fg); cursor:pointer; outline:none; }
+  button:focus, input:focus { box-shadow:0 0 0 4px var(--blue) !important; }
+  .screen { position:absolute; inset:0; display:none; flex-direction:column; }
+  .screen.on { display:flex; }
+  .pad { padding:26px 26px 20px; }
+  h1 { font-size:34px; margin:0 0 6px; }
+  p.hint { font-size:21px; color:var(--dim); margin:0 0 16px; line-height:1.35; }
+  .big { width:100%; border:0; border-radius:20px; padding:20px 22px; font-size:28px; font-weight:700; text-align:left;
+    display:flex; align-items:center; gap:16px; background:var(--card); margin-bottom:12px; flex-shrink:0; }
+  .big .ic { width:52px; height:52px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:28px; flex-shrink:0; }
+  .big small { display:block; font-size:18px; font-weight:500; color:var(--dim); margin-top:2px; }
+  .blue { background:var(--blue) !important; }
+  .scroller { flex:1; overflow-y:auto; scrollbar-width:none; display:flex; flex-direction:column; gap:10px; padding:0 22px 22px; }
+  .scroller::-webkit-scrollbar { display:none; }
+
+  /* search */
+  .searchrow { display:flex; gap:10px; padding:22px 22px 12px; flex-shrink:0; }
+  .searchrow input { flex:1; min-width:0; font:inherit; font-size:24px; padding:14px 18px; border-radius:16px; border:0; background:var(--card2); color:var(--fg); outline:none; }
+  .searchrow button { border:0; border-radius:16px; background:var(--blue); font-size:22px; font-weight:700; padding:0 20px; }
+  .place { text-align:left; border:0; background:var(--card); border-radius:18px; padding:14px 18px; display:flex; gap:14px; align-items:center; flex-shrink:0; }
+  .place .pin { width:44px; height:44px; border-radius:50%; background:var(--red); display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
+  .place .pin.r { background:#636366; }
+  .place .n { font-size:24px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .place .a { font-size:18px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .place > div { min-width:0; }
+  .sec { font-size:18px; font-weight:700; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; margin:8px 4px 0; }
+  .msg { font-size:21px; color:var(--dim); padding:8px 4px; line-height:1.4; }
+
+  /* map + nav */
+  #mapwrap { position:absolute; inset:0; }
+  #map { position:absolute; inset:0; background:#000; }
+  .leaflet-container { background:#000; font:inherit; }
+  /* The lens washes out dark grays, so the dark map is lifted to keep the streets readable */
+  .leaflet-tile-pane { filter:brightness(1.75) contrast(1.15); }
+  .leaflet-control-attribution { background:rgba(0,0,0,.6) !important; color:#888 !important; font-size:10px !important; }
+  .leaflet-control-attribution a { color:#aaa !important; }
+  .puck { width:26px; height:26px; border-radius:50%; background:var(--blue); border:5px solid #fff; box-shadow:0 0 0 8px rgba(10,132,255,.35); }
+  .dest { width:34px; height:34px; border-radius:50%; background:var(--red); border:4px solid #fff; display:flex; align-items:center; justify-content:center; color:#fff; font-size:16px; }
+  .turnpt { width:18px; height:18px; border-radius:50%; background:#fff; border:4px solid var(--blue); }
+
+  #banner { position:absolute; top:12px; left:12px; right:12px; z-index:500; background:rgba(28,28,30,.96); border-radius:24px;
+    padding:14px 18px; display:flex; gap:16px; align-items:center; min-height:120px; }
+  #arrow { width:84px; height:84px; flex-shrink:0; }
+  #arrow svg { width:100%; height:100%; }
+  #dist { font-size:46px; font-weight:800; line-height:1; letter-spacing:-.5px; }
+  #road { font-size:27px; font-weight:700; line-height:1.15; margin-top:4px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  #banner > div { min-width:0; }
+  #then { position:absolute; top:136px; left:12px; z-index:500; background:rgba(28,28,30,.96); border-radius:0 0 16px 16px;
+    padding:6px 14px 8px; font-size:20px; font-weight:600; display:none; align-items:center; gap:8px; }
+  #then svg { width:26px; height:26px; }
+  #then.on { display:flex; }
+
+  #bottom { position:absolute; left:12px; right:12px; bottom:12px; z-index:500; background:rgba(28,28,30,.96); border-radius:24px; padding:12px 14px; }
+  #eta { display:flex; justify-content:space-around; text-align:center; margin-bottom:10px; }
+  #eta b { display:block; font-size:30px; font-weight:800; }
+  #eta span { font-size:16px; color:var(--dim); font-weight:600; }
+  #eta .arr b { color:var(--green); }
+  #ctrls { display:flex; gap:8px; }
+  #ctrls button { flex:1; border:0; border-radius:16px; background:var(--card2); font-size:20px; font-weight:700; padding:12px 0; }
+  #ctrls .end { background:var(--red); }
+  #ctrls button:disabled { opacity:.35; }
+  #mode { position:absolute; right:16px; top:144px; z-index:500; font-size:15px; font-weight:700; padding:5px 10px; border-radius:10px; background:rgba(0,0,0,.7); color:var(--dim); }
+  #mode.gps { color:var(--green); }
+
+  /* overview card */
+  #ovcard { position:absolute; left:12px; right:12px; bottom:12px; z-index:500; background:rgba(28,28,30,.97); border-radius:24px; padding:18px 18px 14px; }
+  #ovcard .t { font-size:28px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #ovcard .s { font-size:21px; color:var(--dim); margin:4px 0 14px; }
+  #ovcard .s b { color:var(--fg); }
+  #ovbtns { display:flex; gap:10px; }
+  #ovbtns button { border:0; border-radius:18px; padding:16px 0; font-size:26px; font-weight:800; }
+  #b-go { flex:2; background:var(--green) !important; color:#000; }
+  #b-back { flex:1; background:var(--card2); }
+
+  /* steps list */
+  .step { text-align:left; border:0; background:var(--card); border-radius:16px; padding:12px 14px; display:flex; gap:14px; align-items:center; flex-shrink:0; }
+  .step svg { width:44px; height:44px; flex-shrink:0; }
+  .step .n { font-size:22px; font-weight:700; line-height:1.2; }
+  .step .d { font-size:17px; color:var(--dim); }
+  .step.cur { background:#0a3a6e; }
+
+  #loading { position:absolute; inset:0; z-index:900; background:rgba(0,0,0,.85); display:none; align-items:center; justify-content:center; font-size:26px; font-weight:700; }
+  #loading.on { display:flex; }
+  #toast { position:absolute; left:50%; bottom:180px; transform:translateX(-50%); z-index:950; background:var(--card2); padding:12px 20px; border-radius:16px;
+    font-size:21px; font-weight:600; opacity:0; transition:opacity .25s; pointer-events:none; max-width:92%; text-align:center; }
+  #toast.on { opacity:1; }
+</style>
+</head>
+<body>
+
+<!-- 1. Passenger check, every time the app opens -->
+<section class="screen on" id="who">
+  <div class="pad" style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <h1>Ride Along</h1>
+    <p class="hint">Turn-by-turn directions in your lens, for calling out turns to the driver.</p>
+    <button class="big blue" id="b-pass"><span class="ic" style="background:rgba(255,255,255,.2)">🧭</span><span>I'm the passenger<small>Show me the directions</small></span></button>
+    <button class="big" id="b-drive"><span class="ic" style="background:var(--red)">🚗</span><span>I'm driving<small>Keep my eyes on the road</small></span></button>
+  </div>
+</section>
+
+<!-- 1b. Driver: no lens directions -->
+<section class="screen" id="driver">
+  <div class="pad" style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <h1>Eyes on the road 👀</h1>
+    <p class="hint" style="font-size:23px">Ride Along is for passengers only. While driving, use Apple Maps on your phone or CarPlay. Its voice turns play through your glasses speakers.</p>
+    <p class="hint" style="font-size:23px">Tip: turn on <b style="color:#fff">Driving Detection</b> in the Meta AI app so the lens goes dark while you drive.</p>
+    <button class="big" id="b-who2"><span class="ic" style="background:var(--card2)">↩</span><span>Back</span></button>
+  </div>
+</section>
+
+<!-- 2. Where to -->
+<section class="screen" id="search">
+  <div class="searchrow">
+    <input id="q" type="text" placeholder="Search Maps" autocomplete="off" enterkeyhint="search">
+    <button id="b-find">Go</button>
+  </div>
+  <div class="scroller" id="results"></div>
+</section>
+
+<!-- 3. Map: route overview and navigation -->
+<section class="screen" id="nav">
+  <div id="mapwrap"><div id="map"></div></div>
+  <div id="navui" style="display:none">
+    <div id="banner"><div id="arrow"></div><div><div id="dist"></div><div id="road"></div></div></div>
+    <div id="then"></div>
+    <div id="mode"></div>
+    <div id="bottom">
+      <div id="eta">
+        <div class="arr"><b id="e-arr">--</b><span>arrival</span></div>
+        <div><b id="e-min">--</b><span>min</span></div>
+        <div><b id="e-mi">--</b><span>mi</span></div>
+      </div>
+      <div id="ctrls">
+        <button id="b-prev">◀ Back</button>
+        <button id="b-next">Next ▶</button>
+        <button id="b-steps">☰ Steps</button>
+        <button id="b-end" class="end">End</button>
+      </div>
+    </div>
+  </div>
+  <div id="ovcard" style="display:none">
+    <div class="t" id="ov-name"></div>
+    <div class="s" id="ov-sum"></div>
+    <div id="ovbtns"><button id="b-back">Back</button><button id="b-go">Go</button></div>
+  </div>
+</section>
+
+<!-- 4. All steps -->
+<section class="screen" id="steps">
+  <div class="pad" style="padding-bottom:10px"><h1 style="font-size:28px">Directions</h1></div>
+  <div class="scroller" id="steplist"></div>
+</section>
+
+<div id="loading">Finding a route…</div>
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const QS = new URLSearchParams(location.search);
+function store(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} }
+function recall(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+let toastT;
+function toast(m, ms = 3000) { const t = $("toast"); t.textContent = m; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), ms); }
+
+/* ---------- screens (system Back steps back through them) ---------- */
+let stack = ["who"];
+function render(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === id));
+  if (id === "nav" && map) setTimeout(() => map.invalidateSize(), 30);
+  setTimeout(() => { const f = $(id).querySelector("button:not([disabled]), input"); if (f && !(id === "nav")) f.focus(); }, 40);
+}
+function go(id) { if (stack[stack.length - 1] === id) return render(id); stack.push(id); history.pushState({ s: id }, "", location.href); render(id); }
+window.addEventListener("popstate", () => {
+  if (stack.length > 1) { const left = stack.pop(); if (left === "nav") stopNav(); }
+  render(stack[stack.length - 1]);
+});
+/* Arrow keys for desktop testing; the glasses do their own focus moves and pinch = click */
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) return;
+  const scr = document.querySelector(".screen.on");
+  const f = Array.from(scr.querySelectorAll("button, input")).filter(b => b.offsetParent && !b.disabled);
+  if (!f.length) return;
+  let i = f.indexOf(document.activeElement);
+  if (e.key === "ArrowDown" || e.key === "ArrowRight") { e.preventDefault(); f[Math.min(f.length - 1, i + 1)].focus(); }
+  else if (e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); f[Math.max(0, i - 1)].focus(); }
+});
+document.addEventListener("focusin", e => { if (e.target.scrollIntoView) e.target.scrollIntoView({ block: "nearest" }); });
+
+/* ---------- passenger check ---------- */
+$("b-pass").onclick = () => { go("search"); if (pendingDest) { const d = pendingDest; pendingDest = null; pickPlace(d); } else showRecents(); };
+$("b-drive").onclick = () => go("driver");
+$("b-who2").onclick = () => history.back();
+
+/* ---------- location ---------- */
+let here = null, hereAt = 0, watchId = null, gpsOk = false;
+const hasGeo = "geolocation" in navigator;
+function startWatch() {
+  if (!hasGeo || watchId != null) return;
+  try {
+    watchId = navigator.geolocation.watchPosition(p => {
+      here = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, speed: p.coords.speed };
+      hereAt = Date.now(); gpsOk = true; onFix();
+    }, err => { gpsOk = false; updateMode(); }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
+  } catch (e) {}
+}
+function getHere(ms = 8000) {
+  return new Promise(res => {
+    if (here && Date.now() - hereAt < 30000) return res(here);
+    if (!hasGeo) return res(null);
+    let done = false; const t = setTimeout(() => { if (!done) { done = true; res(here); } }, ms);
+    try {
+      navigator.geolocation.getCurrentPosition(p => {
+        if (done) return; done = true; clearTimeout(t);
+        here = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy }; hereAt = Date.now(); gpsOk = true; res(here);
+      }, () => { if (!done) { done = true; clearTimeout(t); res(null); } }, { enableHighAccuracy: true, timeout: ms, maximumAge: 10000 });
+    } catch (e) { done = true; clearTimeout(t); res(null); }
+  });
+}
+startWatch();
+
+/* ---------- search (Photon, OpenStreetMap data) ---------- */
+function fmtPlace(f) {
+  const p = f.properties || {};
+  const name = p.name || [p.housenumber, p.street].filter(Boolean).join(" ") || p.city || "Place";
+  const street = p.name && p.street ? [p.housenumber, p.street].filter(Boolean).join(" ") : "";
+  const addr = [street, p.city || p.town || p.village, p.state].filter(Boolean).join(", ");
+  return { name, addr, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] };
+}
+async function search() {
+  const q = $("q").value.trim(); if (!q) return;
+  const box = $("results"); box.innerHTML = '<div class="msg">Searching…</div>';
+  const ll = q.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (ll) return listPlaces([{ name: "Dropped pin", addr: q, lat: +ll[1], lon: +ll[2] }], "Results");
+  const at = await getHere(2500);
+  let url = "https://photon.komoot.io/api/?limit=8&lang=en&q=" + encodeURIComponent(q);
+  if (at) url += "&lat=" + at.lat.toFixed(4) + "&lon=" + at.lon.toFixed(4);
+  try {
+    const r = await fetch(url); const j = await r.json();
+    const list = (j.features || []).map(fmtPlace);
+    if (!list.length) { box.innerHTML = '<div class="msg">No places found. Try adding the city, like "Home Depot Marietta GA".</div>'; return; }
+    listPlaces(list, "Results");
+  } catch (e) { box.innerHTML = '<div class="msg">Search isn\'t reachable right now. Check that your phone has signal, then try again.</div>'; }
+}
+function placeBtn(p, recent) {
+  const b = document.createElement("button"); b.className = "place";
+  b.innerHTML = '<span class="pin' + (recent ? " r" : "") + '">' + (recent ? "🕘" : "📍") + '</span><div><div class="n"></div><div class="a"></div></div>';
+  b.querySelector(".n").textContent = p.name; b.querySelector(".a").textContent = p.addr || "";
+  b.onclick = () => pickPlace(p); return b;
+}
+function listPlaces(list, title) {
+  const box = $("results"); box.innerHTML = "";
+  const h = document.createElement("div"); h.className = "sec"; h.textContent = title; box.appendChild(h);
+  list.forEach(p => box.appendChild(placeBtn(p, false)));
+  const first = box.querySelector("button"); if (first) first.focus();
+}
+function recents() { try { return JSON.parse(recall("ra.recents") || "[]"); } catch (e) { return []; } }
+function saved() {
+  /* Places saved from the phone page arrive in the link as ?p= (base64 JSON), so they survive even if storage is wiped */
+  try { const s = QS.get("p"); if (!s) return []; return JSON.parse(decodeURIComponent(escape(atob(s.replace(/-/g, "+").replace(/_/g, "/"))))); } catch (e) { return []; }
+}
+function remember(p) { const r = recents().filter(x => !(Math.abs(x.lat - p.lat) < 1e-5 && Math.abs(x.lon - p.lon) < 1e-5)); r.unshift(p); store("ra.recents", JSON.stringify(r.slice(0, 8))); }
+function showRecents() {
+  const box = $("results"); box.innerHTML = "";
+  const s = saved(), r = recents();
+  if (s.length) { const h = document.createElement("div"); h.className = "sec"; h.textContent = "Favorites"; box.appendChild(h); s.forEach(p => box.appendChild(placeBtn(p, false))); }
+  if (r.length) { const h = document.createElement("div"); h.className = "sec"; h.textContent = "Recents"; box.appendChild(h); r.forEach(p => box.appendChild(placeBtn(p, true))); }
+  if (!s.length && !r.length) box.innerHTML = '<div class="msg">Type an address or a place, then pinch Go.<br><br>Or send a destination from your phone with the Ride Along phone page.</div>';
+}
+$("b-find").onclick = search;
+$("q").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); search(); } });
+
+/* ---------- routing (OSRM, OpenStreetMap data) ---------- */
+let dest = null, route = null, from = null;
+let line = null, casing = null, puck = null, destMk = null, turnMk = null, map = null;
+let geo = [], cum = [], stepStart = [], total = 0;
+
+function initMap() {
+  if (map) return;
+  map = L.map("map", { zoomControl: false, attributionControl: true, keyboard: false, inertia: false });
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    subdomains: "abcd", maxZoom: 20, detectRetina: true,
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>'
+  }).addTo(map);
+  map.attributionControl.setPrefix(false);
+}
+function hav(a, b) { /* meters between [lat,lon] pairs */
+  const R = 6371000, r = Math.PI / 180, dLa = (b[0] - a[0]) * r, dLo = (b[1] - a[1]) * r;
+  const s = Math.sin(dLa / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLo / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+async function fetchRoute(a, b) {
+  const url = "https://router.project-osrm.org/route/v1/driving/" + a.lon + "," + a.lat + ";" + b.lon + "," + b.lat + "?overview=full&geometries=geojson&steps=true";
+  const r = await fetch(url); const j = await r.json();
+  if (j.code !== "Ok" || !j.routes || !j.routes.length) throw new Error(j.message || "No route");
+  return j.routes[0];
+}
+function useRoute(rt) {
+  route = rt;
+  geo = rt.geometry.coordinates.map(c => [c[1], c[0]]);
+  cum = [0]; for (let i = 1; i < geo.length; i++) cum.push(cum[i - 1] + hav(geo[i - 1], geo[i]));
+  total = cum[cum.length - 1] || rt.distance;
+  const steps = rt.legs[0].steps; stepStart = []; let s = 0;
+  /* scale OSRM step lengths onto the drawn line so the two always agree */
+  const k = rt.distance ? total / rt.distance : 1;
+  steps.forEach(st => { stepStart.push(s); s += st.distance * k; });
+  if (casing) casing.remove(); if (line) line.remove();
+  casing = L.polyline(geo, { color: "#003a80", weight: 15, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(map);
+  line = L.polyline(geo, { color: "#0a84ff", weight: 10, opacity: 1, lineCap: "round", lineJoin: "round" }).addTo(map);
+  if (destMk) destMk.remove();
+  destMk = L.marker(geo[geo.length - 1], { icon: L.divIcon({ className: "", html: '<div class="dest">●</div>', iconSize: [34, 34], iconAnchor: [17, 17] }), keyboard: false, interactive: false }).addTo(map);
+}
+let pendingDest = null;
+async function pickPlace(p) {
+  dest = p; remember(p);
+  go("nav"); initMap(); setTimeout(() => map.invalidateSize(), 50);
+  $("navui").style.display = "none"; $("ovcard").style.display = "none";
+  $("loading").classList.add("on"); $("loading").textContent = "Finding a route…";
+  from = await getHere(8000);
+  if (!from) {
+    $("loading").classList.remove("on");
+    toast("Can't get your location here. Search a starting point instead.", 4000);
+    askStart(); return;
+  }
+  await buildRoute();
+}
+async function buildRoute() {
+  $("loading").classList.add("on");
+  try { useRoute(await fetchRoute(from, dest)); }
+  catch (e) { $("loading").classList.remove("on"); toast("Couldn't find a driving route there.", 3500); history.back(); return; }
+  $("loading").classList.remove("on");
+  showOverview();
+}
+/* No GPS in the lens: pick a starting point instead (the turn list still works, you step through it with Next) */
+function askStart() {
+  history.back();
+  setTimeout(() => {
+    choosingStart = true; $("q").value = ""; $("q").placeholder = "Starting from…";
+    $("results").innerHTML = '<div class="msg">Where are you starting from? Type an address, then pinch Go.</div>'; $("q").focus();
+  }, 80);
+}
+let choosingStart = false;
+const _pick = pickPlace;
+pickPlace = async function (p) {
+  if (choosingStart) {
+    choosingStart = false; $("q").placeholder = "Search Maps"; from = { lat: p.lat, lon: p.lon, manual: true };
+    go("nav"); initMap(); setTimeout(() => map.invalidateSize(), 50); await buildRoute(); return;
+  }
+  return _pick(p);
+};
+function fmtDist(m) {
+  const mi = m / 1609.344;
+  if (mi < 0.1) { const ft = Math.max(50, Math.round(m * 3.28084 / 50) * 50); return [ft, "ft"]; }
+  return [mi < 10 ? mi.toFixed(1) : Math.round(mi), "mi"];
+}
+function fmtArrive(sec) { const d = new Date(Date.now() + sec * 1000); return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }).replace(/\s?[AP]M/i, ""); }
+function showOverview() {
+  $("navui").style.display = "none"; $("ovcard").style.display = "block";
+  $("ov-name").textContent = dest.name;
+  const [d, u] = fmtDist(route.distance);
+  $("ov-sum").innerHTML = "<b>" + Math.max(1, Math.round(route.duration / 60)) + " min</b> · " + d + " " + u + " · arrive " + fmtArrive(route.duration);
+  map.fitBounds(line.getBounds(), { paddingTopLeft: [30, 30], paddingBottomRight: [30, 190] });
+  setTimeout(() => $("b-go").focus(), 60);
+}
+$("b-back").onclick = () => history.back();
+
+/* ---------- turn arrows (Apple Maps style glyphs) ---------- */
+const ANG = { "straight": 0, "slight right": 40, "right": 90, "sharp right": 135, "uturn": 180, "sharp left": -135, "left": -90, "slight left": -40 };
+function arrowSvg(st, color = "#fff") {
+  const m = st.maneuver, t = m.type, mod = m.modifier || "straight";
+  if (t === "arrive") return '<svg viewBox="0 0 100 100"><circle cx="50" cy="40" r="22" fill="none" stroke="' + color + '" stroke-width="10"/><path d="M50 62 L50 92" stroke="' + color + '" stroke-width="10" stroke-linecap="round"/><circle cx="50" cy="40" r="8" fill="' + color + '"/></svg>';
+  if (t === "roundabout" || t === "rotary" || t === "exit roundabout" || t === "roundabout turn") {
+    return '<svg viewBox="0 0 100 100"><circle cx="50" cy="56" r="20" fill="none" stroke="' + color + '" stroke-width="9" opacity=".55"/><path d="M50 96 L50 76 M50 36 L50 10 M36 22 L50 8 L64 22" stroke="' + color + '" stroke-width="10" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+      (m.exit ? '<text x="50" y="64" text-anchor="middle" font-size="24" font-weight="800" fill="' + color + '">' + m.exit + '</text>' : "") + '</svg>';
+  }
+  if (mod === "uturn") return '<svg viewBox="0 0 100 100"><path d="M66 92 L66 40 A16 16 0 0 0 34 40 L34 70 M20 56 L34 72 L48 56" stroke="' + color + '" stroke-width="10" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  let a = ANG[mod] || 0;
+  if (t === "depart" || t === "continue" || t === "new name") a = t === "depart" ? 0 : a;
+  if (t === "merge" || t === "fork" || t === "on ramp" || t === "off ramp") a = Math.sign(a) * Math.min(Math.abs(a), 40);
+  /* stem comes up from the bottom, then bends to the new heading */
+  const r = a * Math.PI / 180, bx = 50, by = 50, ex = bx + Math.sin(r) * 36, ey = by - Math.cos(r) * 36;
+  const hx = ex, hy = ey, l = 16, h1 = r + Math.PI * 0.78, h2 = r - Math.PI * 0.78;
+  return '<svg viewBox="0 0 100 100"><path d="M50 94 L50 50 L' + ex.toFixed(1) + ' ' + ey.toFixed(1) + '" stroke="' + color + '" stroke-width="11" fill="none" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '<path d="M' + (hx + Math.sin(h1) * l).toFixed(1) + ' ' + (hy - Math.cos(h1) * l).toFixed(1) + ' L' + hx.toFixed(1) + ' ' + hy.toFixed(1) + ' L' + (hx + Math.sin(h2) * l).toFixed(1) + ' ' + (hy - Math.cos(h2) * l).toFixed(1) + '" stroke="' + color + '" stroke-width="11" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+function roadName(st) { return st.name || st.ref || st.destinations || ""; }
+function instruction(st) {
+  const m = st.maneuver, t = m.type, mod = m.modifier || "", road = roadName(st);
+  const onto = road ? " onto " + road : "";
+  const dir = mod.replace("slight ", "slight ").replace("sharp ", "sharp ");
+  switch (t) {
+    case "depart": return "Start" + (road ? " on " + road : "");
+    case "arrive": return "Arrive at " + (dest ? dest.name : "destination");
+    case "merge": return "Merge" + (mod.includes("left") ? " left" : mod.includes("right") ? " right" : "") + onto;
+    case "on ramp": return "Take the ramp" + (st.destinations ? " to " + st.destinations : onto);
+    case "off ramp": return "Take the exit" + (st.exits ? " " + st.exits : "") + (st.destinations ? " to " + st.destinations : onto);
+    case "fork": return "Keep " + (mod.includes("left") ? "left" : "right") + (st.destinations ? " to " + st.destinations : onto);
+    case "end of road": return "Turn " + dir + onto;
+    case "roundabout": case "rotary": case "roundabout turn": return "At the roundabout, take " + ordinal(m.exit || 1) + " exit" + onto;
+    case "exit roundabout": case "exit rotary": return "Exit the roundabout" + onto;
+    case "continue": return mod === "uturn" ? "Make a U-turn" + onto : (mod && mod !== "straight" ? "Keep " + mod.replace("slight ", "") : "Continue") + (road ? " on " + road : "");
+    case "new name": return "Continue on " + (road || "the road");
+    default:
+      if (mod === "uturn") return "Make a U-turn" + onto;
+      if (mod === "straight") return "Go straight" + onto;
+      return "Turn " + dir + onto;
+  }
+}
+function ordinal(n) { return ["the 1st", "the 2nd", "the 3rd"][n - 1] || "the " + n + "th"; }
+
+/* ---------- navigation ---------- */
+let navOn = false, cur = 1, manual = false, along = 0, offCount = 0, lastReroute = 0, follow = true;
+function steps() { return route.legs[0].steps; }
+$("b-go").onclick = () => startNav();
+function startNav() {
+  navOn = true; $("ovcard").style.display = "none"; $("navui").style.display = "block";
+  manual = !(gpsOk && here && !(from && from.manual)); cur = 1; along = 0; offCount = 0; follow = true;
+  if (!manual && !puck) puck = L.marker([here.lat, here.lon], { icon: L.divIcon({ className: "", html: '<div class="puck"></div>', iconSize: [26, 26], iconAnchor: [13, 13] }), keyboard: false, interactive: false, zIndexOffset: 1000 }).addTo(map);
+  if (!manual) onFix(); else drawManual();
+  updateMode(); setTimeout(() => $(manual ? "b-next" : "b-steps").focus(), 60);
+}
+function stopNav() { navOn = false; if (turnMk) { turnMk.remove(); turnMk = null; } }
+$("b-end").onclick = () => { stopNav(); history.back(); };
+function updateMode() {
+  const m = $("mode"); if (!navOn) return;
+  m.className = manual ? "" : "gps"; m.textContent = manual ? "TAP NEXT" : "● GPS";
+  $("b-prev").style.display = manual ? "" : "none"; $("b-next").style.display = manual ? "" : "none";
+}
+/* project the GPS fix onto the route line: how far along we are, and how far off it */
+function project(p) {
+  let best = { d: Infinity, along: 0 };
+  const cosLat = Math.cos(p[0] * Math.PI / 180), M = 111320;
+  for (let i = 1; i < geo.length; i++) {
+    const a = geo[i - 1], b = geo[i];
+    const ax = (a[1] - p[1]) * M * cosLat, ay = (a[0] - p[0]) * M, bx = (b[1] - p[1]) * M * cosLat, by = (b[0] - p[0]) * M;
+    const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+    let t = L2 ? -(ax * dx + ay * dy) / L2 : 0; t = Math.max(0, Math.min(1, t));
+    const x = ax + t * dx, y = ay + t * dy, d = Math.hypot(x, y);
+    if (d < best.d) best = { d, along: cum[i - 1] + t * (cum[i] - cum[i - 1]) };
+  }
+  return best;
+}
+function onFix() {
+  if (!navOn || manual || !route || !here) return;
+  const p = [here.lat, here.lon];
+  if (puck) puck.setLatLng(p);
+  const pr = project(p);
+  if (pr.d > Math.max(60, (here.acc || 0) * 1.5)) {
+    if (++offCount >= 3 && Date.now() - lastReroute > 15000) reroute();
+  } else { offCount = 0; along = Math.max(along - 30, pr.along); }
+  const st = steps(); let k = 0;
+  for (let i = 0; i < stepStart.length; i++) if (stepStart[i] <= along + 8) k = i;
+  cur = Math.min(st.length - 1, k + 1);
+  const toTurn = Math.max(0, (stepStart[cur] ?? total) - along);
+  showStep(cur, toTurn, total - along);
+  if (follow) map.setView(p, toTurn < 250 ? 17 : 16, { animate: true });
+  if (cur === st.length - 1 && toTurn < 30) toast("You've arrived 🎉", 5000);
+}
+async function reroute() {
+  lastReroute = Date.now(); offCount = 0; toast("Rerouting…", 2000);
+  try { from = { lat: here.lat, lon: here.lon }; useRoute(await fetchRoute(from, dest)); along = 0; onFix(); } catch (e) {}
+}
+function drawManual() {
+  const st = steps(); cur = Math.max(1, Math.min(st.length - 1, cur));
+  const toTurn = st[cur - 1].distance;
+  const left = st.slice(cur - 1).reduce((s, x) => s + x.distance, 0);
+  showStep(cur, toTurn, left);
+  const loc = st[cur].maneuver.location;
+  if (turnMk) turnMk.remove();
+  turnMk = L.marker([loc[1], loc[0]], { icon: L.divIcon({ className: "", html: '<div class="turnpt"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }), keyboard: false, interactive: false }).addTo(map);
+  map.setView([loc[1], loc[0]], 16, { animate: true });
+  $("b-prev").disabled = cur <= 1; $("b-next").disabled = cur >= st.length - 1;
+}
+$("b-next").onclick = () => { cur++; drawManual(); };
+$("b-prev").onclick = () => { cur--; drawManual(); };
+function showStep(i, toTurn, left) {
+  const st = steps(), s = st[i];
+  $("arrow").innerHTML = arrowSvg(s);
+  const [d, u] = fmtDist(toTurn);
+  $("dist").textContent = s.maneuver.type === "arrive" && toTurn < 30 ? "Arrived" : d + " " + u;
+  $("road").textContent = instruction(s).replace(/^Turn (left|right) onto /, "").replace(/^Continue on /, "");
+  if (!/^Turn (left|right) onto |^Continue on /.test(instruction(s))) $("road").textContent = instruction(s);
+  /* "Then" chip when the next turn comes right after this one, like Apple Maps */
+  const nx = st[i + 1];
+  if (nx && s.distance < 250 && nx.maneuver.type !== "arrive") { $("then").innerHTML = "Then " + arrowSvg(nx); $("then").classList.add("on"); }
+  else $("then").classList.remove("on");
+  const secLeft = route.duration * (left / Math.max(1, total));
+  $("e-arr").textContent = fmtArrive(secLeft);
+  $("e-min").textContent = Math.max(1, Math.round(secLeft / 60));
+  const [md, mu] = fmtDist(left); $("e-mi").textContent = mu === "mi" ? md : "0.1";
+}
+$("b-steps").onclick = () => {
+  const box = $("steplist"); box.innerHTML = "";
+  steps().forEach((s, i) => {
+    if (i === 0) return;
+    const b = document.createElement("button"); b.className = "step" + (i === cur ? " cur" : "");
+    const [d, u] = fmtDist(steps()[i - 1].distance);
+    b.innerHTML = arrowSvg(s) + '<div><div class="n"></div><div class="d">' + d + " " + u + "</div></div>";
+    b.querySelector(".n").textContent = instruction(s);
+    b.onclick = () => { if (manual) { cur = i; drawManual(); } history.back(); };
+    box.appendChild(b);
+  });
+  go("steps");
+  setTimeout(() => { const c = box.querySelector(".cur") || box.querySelector("button"); if (c) c.focus(); }, 60);
+};
+
+/* ---------- a destination sent from the phone page: ?to=lat,lon&name=... ---------- */
+(function () {
+  const to = QS.get("to"); if (!to) return;
+  const m = to.match(/^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/); if (!m) return;
+  pendingDest = { name: QS.get("name") || "Destination", addr: QS.get("addr") || "", lat: +m[1], lon: +m[2] };
+})();
+window.addEventListener("load", () => $("b-pass").focus());
+</script>
+</body>
+</html>
