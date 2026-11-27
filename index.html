@@ -443,6 +443,7 @@ function play(item, q, i) {
   go("play");
   $("play").classList.remove("clean");
   $("now").textContent = item.title || "Loading…";
+  armHud();
   showCover(item);
   if (!playerReady) { pending = item; return; }
   load(item);
