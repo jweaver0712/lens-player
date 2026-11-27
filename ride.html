@@ -8,7 +8,7 @@
 <title>Ride Along</title>
 <link rel="preconnect" href="https://router.project-osrm.org">
 <link rel="preconnect" href="https://photon.komoot.io">
-<link rel="preconnect" href="https://a.basemaps.cartocdn.com">
+<link rel="preconnect" href="https://tile.openstreetmap.org">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <style>
@@ -51,8 +51,9 @@
   #mapwrap { position:absolute; inset:0; }
   #map { position:absolute; inset:0; background:#000; }
   .leaflet-container { background:#000; font:inherit; }
-  /* The lens washes out dark grays, so the dark map is lifted to keep the streets readable */
-  .leaflet-tile-pane { filter:brightness(1.75) contrast(1.15); }
+  /* Free OpenStreetMap tiles are light, so they are flipped to a dark, Apple Maps night look.
+     Dark areas go see-through in the lens while the streets stay bright and readable. */
+  .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.95) contrast(1.15) saturate(.6); }
   .leaflet-control-attribution { background:rgba(0,0,0,.6) !important; color:#888 !important; font-size:10px !important; }
   .leaflet-control-attribution a { color:#aaa !important; }
   .puck { width:26px; height:26px; border-radius:50%; background:var(--blue); border:5px solid #fff; box-shadow:0 0 0 8px rgba(10,132,255,.35); }
@@ -298,9 +299,9 @@ let geo = [], cum = [], stepStart = [], total = 0;
 function initMap() {
   if (map) return;
   map = L.map("map", { zoomControl: false, attributionControl: true, keyboard: false, inertia: false });
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-    subdomains: "abcd", maxZoom: 20, detectRetina: true,
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>'
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
   }).addTo(map);
   map.attributionControl.setPrefix(false);
 }
