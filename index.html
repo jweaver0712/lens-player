@@ -80,6 +80,15 @@
   .btn small { font-size:17px; font-weight:600; color:var(--dim); }
   #toast { position:absolute; left:20px; right:20px; bottom:20px; padding:14px 18px; border-radius:14px; background:#1a1a1a; font-size:20px; display:none; z-index:9; }
   #toast.on { display:block; }
+  #upnext { position:absolute; inset:0; z-index:6; background:#000; display:none; flex-direction:column; padding:18px 18px 14px; gap:10px; }
+  #upnext.on { display:flex; }
+  #upnext h2 { margin:0; font-size:24px; display:flex; justify-content:space-between; align-items:baseline; }
+  #upnext h2 span { font-size:18px; color:var(--accent); font-weight:600; }
+  #upnext .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; flex:1; min-height:0; }
+  .sug { display:flex; flex-direction:column; text-align:left; background:var(--card); border:3px solid var(--edge); border-radius:14px; padding:6px; gap:6px; min-height:0; overflow:hidden; }
+  .sug img { width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:8px; background:#222; }
+  .sug .t { font-size:19px; font-weight:600; line-height:1.2; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .sec { font-size:18px; font-weight:700; color:var(--accent); padding:6px 4px 0; flex-shrink:0; letter-spacing:.3px; }
   #blackout { position:absolute; inset:0; background:#000; display:none; align-items:flex-end; justify-content:center; padding-bottom:24px; color:#444; font-size:18px; z-index:5; }
   #blackout.on { display:flex; }
 </style>
@@ -124,6 +133,7 @@
     <button class="btn" id="b-zoom" data-act="zoom">⤢<small>Fill</small></button>
     <button class="btn" id="b-dark" data-act="dark">◐<small>Audio</small></button>
   </div></div>
+  <div id="upnext" aria-label="Up next"><h2>Up next <span id="upnext-count"></span></h2><div class="grid" id="upnext-grid"></div></div>
   <div id="blackout">Audio mode · pinch to show screen</div>
 </section>
 
@@ -175,7 +185,7 @@ let stack = ["home"];
 function screenIs(id) { return $(id).classList.contains("on"); }
 function render(id) {
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === id));
-  if (id !== "play" && player && player.pauseVideo) { try { player.pauseVideo(); } catch (e) {} }
+  if (id !== "play" && player && player.pauseVideo) { try { player.pauseVideo(); } catch (e) {} hideUpNext(); }
   if (id !== "link") stopPolling();
   setDark(false, true);
   setTimeout(() => focusFirst(id), 30);
@@ -338,6 +348,7 @@ function renderCards(items, emptyText) {
   });
 }
 async function showTab(tab) {
+  if (tab === "home") cache.home = cache.home && Date.now() - cache.home.at < 3 * 60000 ? cache.home : null;
   currentTab = tab;
   document.querySelectorAll(".tab").forEach(b => b.classList.toggle("sel", b.dataset.tab === tab));
   if (tab === "search") return showSearch();
@@ -370,9 +381,56 @@ async function loadSubs() {
     published: v.contentDetails.videoPublishedAt || v.snippet.publishedAt, thumb: thumb(v.snippet) })); });
   return items.filter(usable).sort((a, b) => new Date(b.published) - new Date(a.published)).slice(0, 40);
 }
+/* ===== "For you": built from what you watch on the glasses =====
+   YouTube doesn't give outside apps your personal recommendations, so Lens Player keeps its own small
+   watch history on the glasses (channels + topics, nothing else) and builds a feed from it. */
+const vItem = v => ({ t: "v", id: typeof v.id === "string" ? v.id : (v.id && v.id.videoId) || (v.contentDetails && v.contentDetails.videoId),
+  title: v.snippet.title, channel: v.snippet.videoOwnerChannelTitle || v.snippet.channelTitle,
+  channelId: v.snippet.videoOwnerChannelId || v.snippet.channelId, cat: v.snippet.categoryId,
+  published: (v.contentDetails && v.contentDetails.videoPublishedAt) || v.snippet.publishedAt, thumb: thumb(v.snippet) });
+function taste() { try { return JSON.parse(recall("lp.taste") || "null") || { ch: {}, cat: {}, seen: [] }; } catch (e) { return { ch: {}, cat: {}, seen: [] }; } }
+function learn(info) {
+  if (!info) return; const t = taste(); const now = Date.now();
+  if (info.channelId) { const c = t.ch[info.channelId] || { n: info.channel || "", k: 0 }; c.k += 1; c.at = now; if (info.channel) c.n = info.channel; t.ch[info.channelId] = c; }
+  if (info.cat) t.cat[info.cat] = (t.cat[info.cat] || 0) + 1;
+  t.seen = [info.id].concat((t.seen || []).filter(x => x !== info.id)).slice(0, 200);
+  const keep = Object.entries(t.ch).sort((a, b) => (b[1].k * 1e13 + b[1].at) - (a[1].k * 1e13 + a[1].at)).slice(0, 30);
+  t.ch = Object.fromEntries(keep);
+  store("lp.taste", JSON.stringify(t));
+}
+function topChannels(n) { return Object.entries(taste().ch).sort((a, b) => b[1].at - a[1].at).slice(0, n).map(([id, c]) => ({ id, name: c.n })); }
+function topCats(n) { return Object.entries(taste().cat).sort((a, b) => b[1] - a[1]).slice(0, n).map(x => x[0]); }
+function dedupe(list, also) {
+  const seen = new Set(also || []); const out = [];
+  list.forEach(it => { if (it && it.id && !seen.has(it.id)) { seen.add(it.id); out.push(it); } });
+  return out;
+}
+function shuffleMix(groups) {   /* deal one from each group in turn, like a real feed */
+  const out = []; let left = true;
+  for (let i = 0; left; i++) { left = false; groups.forEach(g => { if (g[i]) { out.push(g[i]); left = true; } }); }
+  return out;
+}
+async function trending(cat, n) {
+  const p = { part: "snippet", chart: "mostPopular", regionCode: "US", maxResults: String(n) };
+  if (cat) p.videoCategoryId = cat;
+  const j = await yt("videos", p); return (j.items || []).map(vItem).filter(usable);
+}
+async function uploads(channelId, n) {
+  const j = await yt("playlistItems", { part: "snippet,contentDetails", playlistId: "UU" + channelId.slice(2), maxResults: String(n) });
+  return (j.items || []).map(vItem).filter(usable);
+}
+async function settle(ps) { return (await Promise.allSettled(ps)).map(r => r.status === "fulfilled" ? r.value : []); }
 async function loadHome() {
-  const j = await yt("videos", { part: "snippet", chart: "mostPopular", regionCode: "US", maxResults: "40" });
-  return (j.items || []).map(v => ({ t: "v", id: v.id, title: v.snippet.title, channel: v.snippet.channelTitle, published: v.snippet.publishedAt, thumb: thumb(v.snippet) })).filter(usable);
+  const seen = taste().seen || [];
+  const chans = topChannels(4), cats = topCats(2);
+  const [fromCh, fromCats, top] = await Promise.all([
+    settle(chans.map(c => uploads(c.id, 4))),
+    settle(cats.map(c => trending(c, 12))),
+    trending(null, 30)
+  ]);
+  const personal = shuffleMix([].concat(fromCh, fromCats));
+  const items = dedupe(personal, seen).concat(dedupe(top, seen));
+  return dedupe(items).slice(0, 45);
 }
 function signInPrompt() {
   const box = $("feed-list"); box.innerHTML = "";
@@ -458,7 +516,7 @@ function showCover(item) {
 let coverT = null;
 function play(item, q, i) {
   current = item; queue = q || []; qi = typeof i === "number" ? i : -1;
-  go("play");
+  if (screenIs("play")) render("play"); else go("play");
   $("play").classList.remove("clean");
   $("now").textContent = item.title || "Loading…";
   armHud();
@@ -466,7 +524,53 @@ function play(item, q, i) {
   if (!playerReady) { pending = item; return; }
   load(item);
 }
+let info = null, upnext = [], upT = null;
+async function describe(item) {      /* one cheap lookup: channel + topic of what's playing */
+  if (item.t !== "v") return null;
+  try { const j = await yt("videos", { part: "snippet", id: item.id }); const v = (j.items || [])[0]; return v ? vItem(v) : null; } catch (e) { return null; }
+}
+async function buildUpNext(it) {
+  const seen = (taste().seen || []).concat([it.id]);
+  const [same, cat, top] = await settle([
+    it.channelId ? uploads(it.channelId, 8) : Promise.resolve([]),
+    it.cat ? trending(it.cat, 12) : Promise.resolve([]),
+    trending(null, 10)
+  ]);
+  const queued = queue.length && qi >= 0 ? queue.slice(qi + 1, qi + 3) : [];
+  return dedupe(queued.concat(shuffleMix([same, cat]), top), seen).slice(0, 12);
+}
+function showUpNext() {
+  const box = $("upnext"), grid = $("upnext-grid"); grid.innerHTML = "";
+  if (!upnext.length) return false;
+  upnext.slice(0, 4).forEach((it, i) => {
+    const b = el("button", "sug"); const img = el("img"); img.alt = "";
+    img.onerror = () => { img.style.visibility = "hidden"; };
+    img.src = it.thumb || "https://i.ytimg.com/vi/" + it.id + "/mqdefault.jpg";
+    b.append(img, el("div", "t", it.title));
+    b.addEventListener("click", () => { hideUpNext(); play(it, upnext, i); });
+    grid.appendChild(b);
+  });
+  box.classList.add("on"); $("play").classList.remove("clean");
+  setTimeout(() => { const f = grid.querySelector("button"); if (f) f.focus(); }, 30);
+  let n = 8; $("upnext-count").textContent = "Playing in " + n;
+  clearInterval(upT);
+  upT = setInterval(() => {
+    n -= 1;
+    if (n <= 0) { const first = upnext[0]; hideUpNext(); play(first, upnext, 0); }
+    else $("upnext-count").textContent = "Playing in " + n;
+  }, 1000);
+  return true;
+}
+function hideUpNext() { clearInterval(upT); $("upnext").classList.remove("on"); }
+/* Any swipe stops the countdown so you can choose */
+document.addEventListener("keydown", e => { if ($("upnext").classList.contains("on") && upT && e.key !== "Enter") { clearInterval(upT); upT = null; $("upnext-count").textContent = "Pick one"; } }, true);
 function load(item) {
+  hideUpNext(); upnext = []; info = null;
+  if (item.t === "v") describe(item).then(d => {
+    if (!d || current !== item) return;
+    info = Object.assign({}, item, d); learn(info);
+    buildUpNext(info).then(list => { if (current === item) upnext = list; });
+  });
   if (item.t === "p") player.loadPlaylist({ list: item.id, listType: "playlist" });
   else player.loadVideoById({ videoId: item.id, suggestedQuality: "medium" });
 }
@@ -482,7 +586,7 @@ function onState(e) {
     pp.textContent = "Pause"; $("cover").classList.remove("on"); armHud(); showQuality();
     const d = player.getVideoData && player.getVideoData(); if (d && d.title) $("now").textContent = d.title;
   } else if (e.data === YT.PlayerState.PAUSED) { pp.textContent = "Play"; showHud(); }
-  else if (e.data === YT.PlayerState.ENDED) { pp.textContent = "Play"; if (current && current.t === "v") nextInQueue(1); }
+  else if (e.data === YT.PlayerState.ENDED) { pp.textContent = "Play"; if (current && current.t === "v" && !showUpNext()) nextInQueue(1); }
 }
 function onErr(e) {
   const why = { 2: "That link looks broken.", 5: "This video can't play here.", 100: "Video was removed or is private.",
@@ -504,6 +608,7 @@ $("controls").addEventListener("click", e => {
   if (a === "pp") st === YT.PlayerState.PLAYING ? player.pauseVideo() : player.playVideo();
   else if (a === "next") {
     if (current.t === "p") player.nextVideo();
+    else if (upnext.length && !(queue.length && qi >= 0 && qi < queue.length - 1)) { const nx = upnext[0]; play(nx, upnext, 0); }
     else if (!nextInQueue(1)) { player.seekTo(Math.min(player.getCurrentTime() + 30, player.getDuration() - 1), true); toast("+30 seconds"); }
   } else if (a === "prev") {
     if (current.t === "p") player.previousVideo();
@@ -513,12 +618,13 @@ $("controls").addEventListener("click", e => {
 
 /* ================= Demo data (?demo=1) so the layout can be checked without signing in ================= */
 function demoApi(path, params) {
-  const v = (t, c, h) => ({ id: "dQw4w9WgXcQ", snippet: { title: t, channelTitle: c, publishedAt: new Date(Date.now() - h * 3600e3).toISOString(), thumbnails: {} } });
+  const v = (t, c, h) => ({ id: "demo" + t.length + c.length + h, snippet: { title: t, channelTitle: c, publishedAt: new Date(Date.now() - h * 3600e3).toISOString(), thumbnails: {} } });
   if (path === "subscriptions") return { items: [{ snippet: { resourceId: { channelId: "UCdemo1" } } }] };
   if (path === "playlistItems") return { items: [
     ["Why your AC capacitor keeps failing", "HVAC School", 3], ["200A panel upgrade start to finish", "Electrician U", 9],
     ["Tankless water heater descale in 10 minutes", "Plumbing Pro", 20], ["Dryer not heating? Check these 3 parts", "Appliance Fix", 30]
-  ].map(([t, c, h]) => ({ snippet: { title: t, videoOwnerChannelTitle: c, thumbnails: {} }, contentDetails: { videoId: "dQw4w9WgXcQ", videoPublishedAt: new Date(Date.now() - h * 3600e3).toISOString() } })) };
+  ].map(([t, c, h]) => ({ snippet: { title: t, videoOwnerChannelTitle: c, thumbnails: {} }, contentDetails: { videoId: "dm" + t.length + h, videoPublishedAt: new Date(Date.now() - h * 3600e3).toISOString() } })) };
+  if (path === "videos" && params && params.id) return { items: [{ id: params.id, snippet: { title: "Demo", channelTitle: "HVAC School", channelId: "UCdemo1", categoryId: "26", thumbnails: {} } }] };
   if (path === "videos" && params && params.chart) return { items: [
     v("Top 10 tools every new electrician needs", "Tool Talk", 5), v("Why heat pumps freeze up in winter", "HVAC School", 8),
     v("I fixed a $40 dishwasher problem the dealer wanted $600 for", "Appliance Fix", 14), v("Running PEX like a pro", "Plumbing Pro", 22)] };
