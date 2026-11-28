@@ -153,6 +153,21 @@
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="sharp" color-interpolation-filters="sRGB">
   <feConvolveMatrix order="3" kernelMatrix="0 -0.35 0 -0.35 2.4 -0.35 0 -0.35 0" preserveAlpha="true"/></filter></svg>
 
+<script>
+/* Auto-update: the glasses can keep an old copy of this page for a while. On open, ask the site which
+   version is current (never cached) and reload onto a fresh address if this copy is older. */
+const LP_BUILD = "2026-11-28c";
+(function () {
+  try {
+    fetch("version.json?t=" + Date.now(), { cache: "no-store" }).then(r => r.json()).then(j => {
+      if (!j || !j.v || j.v === LP_BUILD) return;
+      const u = new URL(location.href);
+      if (u.searchParams.get("lpv") === j.v) return;   /* already tried this version once: don't loop */
+      u.searchParams.set("lpv", j.v); location.replace(u.toString());
+    }).catch(() => {});
+  } catch (e) {}
+})();
+</script>
 <script src="config.js"></script>
 <script>
 /* ================= Saved lists (from the setup page link) ================= */
