@@ -384,7 +384,7 @@ async function loadSubs() {
 /* ===== "For you": built from what you watch on the glasses =====
    YouTube doesn't give outside apps your personal recommendations, so Lens Player keeps its own small
    watch history on the glasses (channels + topics, nothing else) and builds a feed from it. */
-const vItem = v => ({ t: "v", id: typeof v.id === "string" ? v.id : (v.id && v.id.videoId) || (v.contentDetails && v.contentDetails.videoId),
+const vItem = v => ({ t: "v", id: (v.contentDetails && v.contentDetails.videoId) || (typeof v.id === "string" ? v.id : v.id && v.id.videoId),
   title: v.snippet.title, channel: v.snippet.videoOwnerChannelTitle || v.snippet.channelTitle,
   channelId: v.snippet.videoOwnerChannelId || v.snippet.channelId, cat: v.snippet.categoryId,
   published: (v.contentDetails && v.contentDetails.videoPublishedAt) || v.snippet.publishedAt, thumb: thumb(v.snippet) });
@@ -537,7 +537,7 @@ async function buildUpNext(it) {
     trending(null, 10)
   ]);
   const queued = queue.length && qi >= 0 ? queue.slice(qi + 1, qi + 3) : [];
-  return dedupe(queued.concat(shuffleMix([same, cat]), top), seen).slice(0, 12);
+  return dedupe(shuffleMix([same, cat]).concat(queued, top), seen).slice(0, 12);
 }
 function showUpNext() {
   const box = $("upnext"), grid = $("upnext-grid"); grid.innerHTML = "";
