@@ -178,7 +178,7 @@
   function css() {
     const s = document.createElement("style");
     s.textContent = `
-.band-toast{position:fixed;left:50%;top:18px;transform:translateX(-50%);max-width:92vw;padding:10px 18px;border-radius:14px;background:#14213a;color:#fff;font:600 22px system-ui,sans-serif;display:none;z-index:99}
+.band-toast{position:fixed;left:50%;top:18px;transform:translateX(-50%);max-width:92vw;padding:10px 18px;border-radius:14px;background:#0d1a2e;border:2px solid #9cc3ff;color:#fff;font:600 22px system-ui,sans-serif;display:none;z-index:99}
 .band-toast.on{display:block}
 .band-wheel{position:fixed;inset:0;z-index:98;background:rgba(0,0,0,.88);display:grid;grid-template:1fr auto 1fr/1fr auto 1fr;align-items:center;justify-items:center;padding:18px;font-family:system-ui,sans-serif;color:#fff}
 .band-w{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;max-width:180px;padding:12px 14px;border-radius:18px;border:3px solid #5b7bd6;background:#0f1a33}
@@ -187,7 +187,8 @@
 .band-n{grid-area:1/2}.band-wl{grid-area:2/1}.band-mid{grid-area:2/2;border-color:#333;background:transparent}.band-mid span{font-size:16px;color:#aaa;font-weight:400}.band-e{grid-area:2/3}.band-s{grid-area:3/2}
 .band-head{font-size:18px;color:#9aa;margin:10px 6px 0;text-transform:uppercase;letter-spacing:.6px;flex-shrink:0}
 .band-set .band-ic{min-width:76px;font-size:24px;text-align:center;white-space:nowrap}
-.band-set .band-tx{display:flex;flex-direction:column;min-width:0}
+.band-set{justify-content:flex-start !important;text-align:left !important}
+.band-set .band-tx{display:flex;flex-direction:column;align-items:flex-start;min-width:0}
 .band-set .band-nm{font-size:19px;color:#aab}
 .band-set .band-val{font-size:25px;font-weight:600}
 .band-set.band-hit{border-color:#4cd08a !important;background:#0d2a1b !important}`;
