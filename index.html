@@ -89,7 +89,7 @@
 <!-- HOME -->
 <section id="home" class="screen on" aria-label="Home">
   <h1>Lens Player</h1>
-  <p class="hint">Swipe to pick · pinch to open · Back to return</p>
+  <p class="hint">Swipe to pick · pinch to open · double pinch for shortcuts</p>
   <div id="lists" class="scroller"></div>
 </section>
 
@@ -113,6 +113,13 @@
   <div id="feed-list" class="scroller"></div>
 </section>
 
+<!-- GESTURES (extra Neural Band shortcuts, see band.js) -->
+<section id="gestures" class="screen" aria-label="Gestures">
+  <h1>Gestures</h1>
+  <p class="hint">Pinch a row to change it. Try any gesture here to practice. Nothing runs on this screen.</p>
+  <div id="gest-list" class="scroller"></div>
+</section>
+
 <!-- PLAYER -->
 <section id="play" class="screen" aria-label="Player">
   <div id="player-wrap"><div id="yt"></div><div id="cover"><img id="cover-img" alt="" onerror="this.style.visibility='hidden'"><span>Loading…</span></div></div>
@@ -133,6 +140,7 @@
   <feConvolveMatrix order="3" kernelMatrix="0 -0.35 0 -0.35 2.4 -0.35 0 -0.35 0" preserveAlpha="true"/></filter></svg>
 
 <script src="config.js"></script>
+<script src="band.js"></script>
 <script>
 /* ================= Saved lists (from the setup page link) ================= */
 const DEFAULT_LISTS = [ { n: "Test video (sorry in advance)", t: "v", id: "dQw4w9WgXcQ" } ];
@@ -168,6 +176,10 @@ function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.
     b.addEventListener("click", () => play({ t: l.t, id: l.id, title: l.n }));
     box.appendChild(b);
   });
+  const g = el("button", "tile");
+  g.append(el("span", null, "🤏"), el("span", null, "Gestures"), el("span", "kind", "shortcuts"));
+  g.addEventListener("click", () => go("gestures"));
+  box.appendChild(g);
 })();
 
 /* ================= Screens + Back ================= */
@@ -177,6 +189,7 @@ function render(id) {
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("on", s.id === id));
   if (id !== "play" && player && player.pauseVideo) { try { player.pauseVideo(); } catch (e) {} }
   if (id !== "link") stopPolling();
+  if (id === "gestures") BandShortcuts.renderSettings($("gest-list"), { rowClass: "tile" });
   setDark(false, true);
   setTimeout(() => focusFirst(id), 30);
 }
@@ -186,7 +199,18 @@ function go(id) {           // forward to a new screen (system Back returns)
   stack.push(id); history.pushState({ s: id }, "", location.href); render(id);
 }
 function replace(id) { stack[stack.length - 1] = id; render(id); }
-window.addEventListener("popstate", () => { if (stack.length > 1) stack.pop(); render(stack[stack.length - 1]); });
+/* backTo jumps several screens back in one go (used by gesture shortcuts), keeping history and the stack in step */
+let jumpTo = null;
+window.addEventListener("popstate", () => {
+  if (jumpTo !== null) { stack = stack.slice(0, jumpTo + 1); jumpTo = null; return render(stack[stack.length - 1]); }
+  if (stack.length > 1) stack.pop(); render(stack[stack.length - 1]);
+});
+function backTo(id) {
+  const i = stack.lastIndexOf(id); if (i < 0) return false;
+  const n = stack.length - 1 - i; if (n === 0) return true;
+  jumpTo = i; history.go(-n); return true;
+}
+function goHome() { if (!backTo("home")) { stack = ["home"]; render("home"); } }
 
 /* Focus: the glasses do spatial navigation and pinch = click on their own.
    Arrow handling below is for desktop testing and keeps the focused item in view. */
@@ -494,8 +518,9 @@ function onErr(e) {
   else toast(why, 5000);
 }
 $("controls").addEventListener("click", e => {
-  const b = e.target.closest("button"); if (!b) return;
-  const a = b.dataset.act;
+  const b = e.target.closest("button"); if (b) control(b.dataset.act);
+});
+function control(a) {
   if (a === "dark") return setDark(true);
   if (a === "zoom") return setFill(!$("play").classList.contains("fill"));
   if (!player || !player.getPlayerState) return toast("Still loading…");
@@ -508,6 +533,43 @@ $("controls").addEventListener("click", e => {
   } else if (a === "prev") {
     if (current.t === "p") player.previousVideo();
     else if (!nextInQueue(-1)) { player.seekTo(Math.max(player.getCurrentTime() - 15, 0), true); toast("−15 seconds"); }
+  }
+}
+
+/* ================= Extra gestures (band.js) =================
+   Double pinch opens a 4-way wheel; quick opposite flicks are 4 more. What each one does is picked on the
+   Gestures screen and kept on the glasses. */
+function needVideo() {
+  if (!current) { toast("Nothing is playing yet."); return false; }
+  if (!screenIs("play")) { go("play"); }
+  return true;
+}
+function seekBy(s) {
+  if (!needVideo()) return;
+  try { const t = player.getCurrentTime(); player.seekTo(Math.max(0, Math.min(t + s, player.getDuration() - 1)), true); toast(s > 0 ? "+" + s + " seconds" : "−" + (-s) + " seconds"); }
+  catch (e) { toast("Still loading…"); }
+}
+BandShortcuts.start({
+  key: "lp.band",
+  say: t => toast(t, 1800),
+  testing: () => screenIs("gestures"),
+  actions: {
+    pp:     { name: "Play / pause",       run: () => { if (needVideo()) { try { player.getPlayerState() === YT.PlayerState.PLAYING ? player.pauseVideo() : player.playVideo(); } catch (e) { toast("Still loading…"); } } } },
+    next:   { name: "Next video",         run: () => { if (needVideo()) control("next"); } },
+    prev:   { name: "Previous video",     run: () => { if (needVideo()) control("prev"); } },
+    fwd30:  { name: "Skip ahead 30 sec",  run: () => seekBy(30) },
+    back15: { name: "Back 15 sec",        run: () => seekBy(-15) },
+    audio:  { name: "Audio mode on/off",  run: () => { if (needVideo()) setDark(!$("blackout").classList.contains("on")); } },
+    fill:   { name: "Fill / fit picture", run: () => setFill(!$("play").classList.contains("fill")) },
+    home:   { name: "Home",               run: goHome },
+    myyt:   { name: "My YouTube",         run: () => { if (!backTo("feed")) openMyYouTube(); } },
+    resume: { name: "Back to the video",  run: () => { if (!current) return toast("Nothing is playing yet."); if (!screenIs("play")) { go("play"); try { player.playVideo(); } catch (e) {} } } },
+    time:   { name: "Show the time",      run: () => toast(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }), 2500) },
+    gest:   { name: "Gestures screen",    run: () => go("gestures") }
+  },
+  defaults: {
+    "w-up": "pp", "w-right": "next", "w-left": "prev", "w-down": "audio",
+    "f-lr": "fwd30", "f-rl": "back15", "f-ud": "time", "f-du": "resume"
   }
 });
 
